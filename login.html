@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sign in · FY27 IT Opex Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{
+  --ff-pink:#ED1651; --ff-pink-dark:#B30D3F; --ff-pink-soft:#FCE5EC; --ff-pink-pale:#FDF2F5;
+  --ff-black:#1A1A1A; --ff-charcoal:#2A2A2A; --ff-gray:#4A4A4A; --ff-light-gray:#6B6B6B; --ff-faint:#9E9E9E;
+  --ff-bg:#FAFAFA; --ff-card:#FFFFFF; --ff-border:#D8D8D8;
+  --ff-green:#1F8A47; --ff-green-soft:#E8F5EC;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;min-height:100vh;background:var(--ff-bg);font-family:'Inter',system-ui,sans-serif;color:var(--ff-black);
+  display:flex;align-items:center;justify-content:center;}
+.card{width:380px;max-width:92vw;padding:32px 28px;border:1.5px solid var(--ff-border);border-top:3px solid var(--ff-pink);
+  background:var(--ff-card);border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.06);}
+.brand{display:flex;align-items:center;gap:10px;margin-bottom:22px;}
+.brand h1{font-family:'Nunito',sans-serif;color:var(--ff-pink);font-size:24px;font-weight:800;margin:0;letter-spacing:-.01em;}
+.sub{color:var(--ff-faint);font-size:11.5px;letter-spacing:.18em;text-transform:uppercase;font-weight:700;margin-bottom:22px;}
+label{display:block;color:var(--ff-gray);font-size:11px;letter-spacing:.16em;text-transform:uppercase;font-weight:700;margin-bottom:6px;}
+input[type=email],input[type=text]{width:100%;padding:10px 12px;border:1.5px solid var(--ff-border);border-radius:5px;font-size:14px;
+  font-family:'JetBrains Mono',monospace;box-sizing:border-box;}
+input:focus{outline:none;border-color:var(--ff-pink);}
+#code{letter-spacing:.4em;text-align:center;font-size:20px;}
+.links{margin-top:12px;font-size:11.5px;color:var(--ff-faint);}
+.links a{color:var(--ff-pink);text-decoration:none;cursor:pointer;}
+.links a:hover{text-decoration:underline;}
+button{margin-top:14px;width:100%;padding:11px;background:var(--ff-pink);color:#FFF;border:none;border-radius:5px;
+  font-weight:700;font-size:13.5px;cursor:pointer;font-family:inherit;}
+button:hover{background:var(--ff-pink-dark);}
+button:disabled{background:var(--ff-border);cursor:not-allowed;}
+.msg{margin-top:14px;padding:10px 12px;font-size:12.5px;border-radius:5px;line-height:1.5;display:none;}
+.msg.err{background:var(--ff-pink-soft);color:var(--ff-pink-dark);border:1px solid #F0C7CC;display:block;}
+.msg.ok{background:var(--ff-green-soft);color:var(--ff-green);border:1px solid #C8E6C9;display:block;}
+.hint{margin-top:14px;color:var(--ff-faint);font-size:11.5px;line-height:1.5;}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="brand"><h1>FY27 IT Opex Tracker</h1></div>
+  <div class="sub">IT Cost Centre 155 · Sign in</div>
+
+  <div id="step1">
+    <label for="email">Work email</label>
+    <input id="email" type="email" inputmode="email" autocomplete="email" placeholder="you@allegrofunds.com.au">
+    <button id="send">Email me a code</button>
+  </div>
+
+  <div id="step2" style="display:none">
+    <label for="code">Sign-in code</label>
+    <input id="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="●●●●●●">
+    <button id="verify">Verify &amp; sign in</button>
+    <div class="links"><a id="back">Use a different email</a>&nbsp;·&nbsp;<a id="resend">Resend code</a></div>
+  </div>
+
+  <div id="msg" class="msg"></div>
+  <div class="hint">Confidential. A one-time code is emailed to your allegrofunds.com.au or fantasticfurniture.com.au address.</div>
+</div>
+
+<script src="config.js"></script>
+<script>
+var ALLOWED = (window.ALLOWED_EMAIL_DOMAINS || ['@allegrofunds.com.au', '@fantasticfurniture.com.au']);
+function domainOk(email) {
+  email = (email || '').trim().toLowerCase();
+  return ALLOWED.some(function (d) { return email.slice(-d.length) === d.toLowerCase(); });
+}
+
+var emailInput = document.getElementById('email');
+var codeInput  = document.getElementById('code');
+var sendBtn    = document.getElementById('send');
+var verifyBtn  = document.getElementById('verify');
+var step1      = document.getElementById('step1');
+var step2      = document.getElementById('step2');
+var msgEl      = document.getElementById('msg');
+var currentEmail = '';
+
+function setMsg(text, kind) {
+  msgEl.className = 'msg' + (text ? ' ' + (kind || 'ok') : '');
+  msgEl.textContent = text || '';
+}
+
+function sendCode() {
+  var email = (emailInput.value || '').trim().toLowerCase();
+  if (!email) { setMsg('Enter your work email.', 'err'); return; }
+  if (!domainOk(email)) { setMsg('Use your allegrofunds.com.au or fantasticfurniture.com.au email.', 'err'); emailInput.select(); return; }
+  sendBtn.disabled = true; sendBtn.textContent = 'Sending…';
+  db.auth.signInWithOtp({ email: email, options: { shouldCreateUser: true } }).then(function (res) {
+    sendBtn.disabled = false; sendBtn.textContent = 'Email me a code';
+    if (res.error) { setMsg(res.error.message || 'Could not send the code.', 'err'); return; }
+    currentEmail = email;
+    step1.style.display = 'none'; step2.style.display = '';
+    setMsg('Code sent to ' + email + ' — check your inbox (and spam).', 'ok');
+    codeInput.value = ''; codeInput.focus();
+  });
+}
+
+function verifyCode() {
+  var token = (codeInput.value || '').replace(/\s/g, '');
+  if (!/^\d{6,10}$/.test(token)) { setMsg('Enter the code from the email.', 'err'); return; }
+  verifyBtn.disabled = true; verifyBtn.textContent = 'Verifying…';
+  db.auth.verifyOtp({ email: currentEmail, token: token, type: 'email' }).then(function (res) {
+    if (res.error) {
+      setMsg(res.error.message || 'Invalid or expired code — try Resend.', 'err');
+      verifyBtn.disabled = false; verifyBtn.textContent = 'Verify & sign in';
+      codeInput.select();
+      return;
+    }
+    setMsg('Signed in — redirecting…', 'ok');
+    window.location.href = 'index.html';
+  });
+}
+
+sendBtn.addEventListener('click', sendCode);
+verifyBtn.addEventListener('click', verifyCode);
+emailInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') sendCode(); });
+codeInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') verifyCode(); });
+document.getElementById('back').addEventListener('click', function (e) {
+  e.preventDefault(); step2.style.display = 'none'; step1.style.display = ''; setMsg(''); emailInput.focus();
+});
+document.getElementById('resend').addEventListener('click', function (e) {
+  e.preventDefault(); emailInput.value = currentEmail; sendCode();
+});
+
+// Already signed in with an allowed email? Skip straight to the dashboard.
+db.auth.getSession().then(function (res) {
+  var session = res.data.session;
+  if (session && session.user && domainOk(session.user.email)) {
+    window.location.href = 'index.html';
+  }
+});
+emailInput.focus();
+</script>
+</body>
+</html>

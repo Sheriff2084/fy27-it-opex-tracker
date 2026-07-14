@@ -1,0 +1,1175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FY27 IT Opex Tracker · IT Cost Centre 155</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root {
+  --ff-pink:#ED1651; --ff-pink-dark:#B30D3F; --ff-pink-bright:#FF3870; --ff-pink-soft:#FCE5EC; --ff-pink-pale:#FDF2F5;
+  --ff-black:#1A1A1A; --ff-charcoal:#2A2A2A; --ff-gray:#4A4A4A; --ff-light-gray:#6B6B6B; --ff-faint:#9E9E9E;
+  --ff-bg:#FAFAFA; --ff-card:#FFFFFF; --ff-border:#D8D8D8; --ff-border-soft:#E8E8E8;
+  --ff-green:#1F8A47; --ff-green-soft:#E8F5EC; --ff-amber:#C97D1F; --ff-amber-soft:#FCF1E1;
+  --ff-red:#C8102E; --ff-red-soft:#FBE8EA;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{min-height:100vh;font-family:'Inter',system-ui,sans-serif;background:var(--ff-bg);color:var(--ff-black);}
+.nunito{font-family:'Nunito',sans-serif;font-weight:800;letter-spacing:-.01em;}
+.mono{font-family:'JetBrains Mono',monospace;font-feature-settings:'tnum' 1;}
+
+/* ── Loading / auth ─────────────────────────────────────────────── */
+#loadScreen{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;}
+#loadScreen .brand{font-family:'Nunito',sans-serif;font-size:30px;font-weight:800;color:var(--ff-pink);}
+#loadScreen .sub{font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--ff-gray);font-weight:600;}
+#loadScreen .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--ff-pink);margin-right:8px;animation:pulse 1.3s ease-in-out infinite;vertical-align:middle;}
+@keyframes pulse{0%,100%{opacity:.3;transform:scale(1);}50%{opacity:1;transform:scale(1.3);}}
+
+/* ── Layout shell ───────────────────────────────────────────────── */
+#dashboard{display:none;}
+header{background:#FFF;border-bottom:3px solid var(--ff-pink);position:sticky;top:0;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.04);}
+.hd-wrap{max-width:1400px;margin:0 auto;padding:14px 28px;display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap;}
+.hd-left{display:flex;align-items:center;gap:12px;}
+.hd-left svg{width:44px;height:34px;flex-shrink:0;}
+.hd-title{font-family:'Nunito',sans-serif;font-size:21px;font-weight:800;color:var(--ff-pink);line-height:1.1;}
+.hd-sub{font-size:12px;color:var(--ff-gray);margin-top:2px;}
+.tab-strip{display:flex;gap:0;margin-left:20px;border:1.5px solid var(--ff-pink);border-radius:6px;overflow:hidden;}
+.tab-btn{padding:9px 22px;border:none;border-right:1px solid var(--ff-pink);font-size:13.5px;font-weight:700;cursor:pointer;background:#FFF;color:var(--ff-charcoal);font-family:inherit;transition:background .12s,color .12s;}
+.tab-btn:last-child{border-right:none;}
+.tab-btn:hover{background:var(--ff-pink-pale);}
+.tab-btn.active{background:var(--ff-pink);color:#FFF;}
+.hd-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.total-badge{background:var(--ff-pink);color:#FFF;font-weight:800;font-size:1.25rem;padding:7px 16px;border-radius:6px;text-align:right;white-space:nowrap;}
+.total-badge small{display:block;font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.8px;opacity:.85;}
+.hd-btn{padding:8px 14px;border:1.5px solid var(--ff-pink);border-radius:5px;background:#FFF;color:var(--ff-pink);font-weight:700;font-size:.8rem;cursor:pointer;white-space:nowrap;font-family:inherit;transition:background .12s,color .12s;}
+.hd-btn:hover{background:var(--ff-pink-pale);}
+.hd-btn.on{background:var(--ff-pink);color:#FFF;}
+.hd-user{font-size:.75rem;color:var(--ff-faint);white-space:nowrap;}
+.hd-user a{color:var(--ff-pink);cursor:pointer;text-decoration:none;font-weight:700;}
+.hd-user a:hover{text-decoration:underline;}
+.live-pill{background:var(--ff-green-soft);color:var(--ff-green);font-size:.7rem;font-weight:800;padding:4px 10px;border-radius:12px;white-space:nowrap;}
+
+main{max-width:1400px;margin:0 auto;padding:22px 28px;}
+.kpi-strip{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:20px;}
+.kpi-card{flex:1;min-width:150px;max-width:220px;background:var(--ff-card);border:1px solid var(--ff-border);border-top:3px solid var(--ff-pink);border-radius:6px;padding:14px 16px;box-shadow:0 1px 4px rgba(0,0,0,.05);cursor:pointer;transition:transform .12s,box-shadow .12s;}
+.kpi-card:hover{transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,.1);}
+.kpi-card.active{border-top-color:var(--ff-pink-bright);background:var(--ff-pink-pale);}
+.kpi-card.plain{cursor:default;}
+.kpi-card.plain:hover{transform:none;box-shadow:0 1px 4px rgba(0,0,0,.05);}
+.kpi-label{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--ff-gray);margin-bottom:5px;}
+.kpi-value{font-size:1.25rem;font-weight:800;color:var(--ff-pink);font-family:'JetBrains Mono',monospace;}
+.kpi-count{font-size:.72rem;color:var(--ff-faint);margin-top:2px;}
+
+.month-sel{display:flex;flex-wrap:wrap;gap:7px;align-items:center;margin-bottom:18px;}
+.month-lbl{font-size:.75rem;color:var(--ff-gray);font-weight:600;margin-right:4px;}
+.month-btn{padding:5px 12px;border:1.5px solid var(--ff-border);border-radius:16px;background:#FFF;font-size:.76rem;font-weight:600;cursor:pointer;transition:all .12s;white-space:nowrap;font-family:'JetBrains Mono',monospace;}
+.month-btn:hover{border-color:var(--ff-pink);color:var(--ff-pink);}
+.month-btn.active{background:var(--ff-pink);border-color:var(--ff-pink);color:#fff;}
+.month-btn.latest{border-color:var(--ff-amber);}
+.month-btn.baseline{border-color:var(--ff-charcoal);color:var(--ff-charcoal);font-family:'Inter',sans-serif;}
+.month-btn.baseline.active{background:var(--ff-charcoal);border-color:var(--ff-charcoal);color:#fff;}
+
+.body-cols{display:grid;grid-template-columns:320px 1fr;gap:18px;align-items:start;}
+@media(max-width:1050px){.body-cols{grid-template-columns:1fr;}}
+.charts-col{display:flex;flex-direction:column;gap:14px;position:sticky;top:78px;}
+@media(max-width:1050px){.charts-col{position:static;}}
+.card{background:var(--ff-card);border:1px solid var(--ff-border);border-radius:8px;padding:18px 20px;box-shadow:0 1px 4px rgba(0,0,0,.05);}
+.card-title{font-size:.74rem;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--ff-gray);margin-bottom:14px;padding-bottom:8px;border-bottom:2px solid var(--ff-pink-soft);}
+
+.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px;}
+.search-box{flex:1;min-width:200px;padding:8px 12px;border:1.5px solid var(--ff-border);border-radius:5px;font-size:.875rem;outline:none;font-family:inherit;}
+.search-box:focus{border-color:var(--ff-pink);}
+select{padding:8px 12px;border:1.5px solid var(--ff-border);border-radius:5px;font-size:.875rem;background:#FFF;cursor:pointer;outline:none;font-family:inherit;}
+select:focus{border-color:var(--ff-pink);}
+.sort-btn{padding:8px 14px;border:1.5px solid var(--ff-pink);border-radius:5px;background:#FFF;color:var(--ff-pink);font-weight:700;font-size:.8rem;cursor:pointer;white-space:nowrap;font-family:inherit;}
+.sort-btn:hover,.sort-btn.active{background:var(--ff-pink);color:#FFF;}
+.result-count{font-size:.76rem;color:var(--ff-faint);margin-left:auto;}
+.add-btn{padding:8px 14px;border:none;border-radius:5px;background:var(--ff-green);color:#FFF;font-weight:700;font-size:.8rem;cursor:pointer;white-space:nowrap;font-family:inherit;}
+.add-btn:hover{background:#166b37;}
+
+.table-wrap{overflow:auto;max-height:70vh;}
+table{width:100%;border-collapse:collapse;font-size:.83rem;}
+thead tr{background:var(--ff-charcoal);color:#FFF;}
+thead th{padding:10px 12px;text-align:left;font-weight:700;font-size:.71rem;text-transform:uppercase;letter-spacing:.5px;cursor:pointer;user-select:none;white-space:nowrap;position:sticky;top:0;z-index:2;background:var(--ff-charcoal);}
+thead th:hover{background:#1A1A1A;}
+tbody tr{border-bottom:1px solid var(--ff-border-soft);transition:background .1s;}
+tbody tr:hover{background:var(--ff-pink-pale);}
+tbody tr:nth-child(even){background:#fafafa;}
+tbody tr:nth-child(even):hover{background:var(--ff-pink-pale);}
+td{padding:9px 12px;vertical-align:middle;}
+td.num{font-weight:700;text-align:right;white-space:nowrap;font-family:'JetBrains Mono',monospace;}
+td.mono{font-family:'JetBrains Mono',monospace;font-size:.75rem;color:var(--ff-gray);}
+td.pill span{display:inline-block;padding:3px 9px;border-radius:12px;font-size:.68rem;font-weight:700;white-space:nowrap;}
+.pct-wrap{display:flex;align-items:center;gap:5px;justify-content:flex-end;}
+.pct-bar{height:6px;border-radius:3px;background:var(--ff-pink);min-width:2px;}
+.pct-lbl{font-size:.72rem;color:var(--ff-faint);min-width:36px;text-align:right;}
+tfoot tr{background:var(--ff-pink-soft);}
+tfoot td{font-weight:800;font-size:.85rem;padding:10px 12px;}
+.no-results{text-align:center;padding:40px;color:#ccc;font-size:.95rem;}
+.row-actions{display:flex;gap:6px;}
+.icon-btn{border:1px solid var(--ff-border);background:#FFF;border-radius:4px;padding:3px 7px;cursor:pointer;font-size:.78rem;line-height:1;}
+.icon-btn:hover{background:var(--ff-pink-pale);border-color:var(--ff-pink);}
+.icon-btn.danger:hover{background:var(--ff-red-soft);border-color:var(--ff-red);}
+
+.chg-new{background:#e3f4e8;color:#155724;font-size:.67rem;font-weight:800;padding:2px 7px;border-radius:10px;white-space:nowrap;}
+.chg-gone{background:var(--ff-pink-soft);color:var(--ff-pink-dark);font-size:.67rem;font-weight:800;padding:2px 7px;border-radius:10px;white-space:nowrap;}
+.exp-active{background:var(--ff-green-soft);color:var(--ff-green);}
+.exp-soon{background:var(--ff-amber-soft);color:var(--ff-amber);}
+.exp-expired{background:#eee;color:#777;}
+.exp-tbc{background:var(--ff-pink-soft);color:var(--ff-pink-dark);}
+
+.trend-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px;}
+@media(max-width:900px){.trend-grid{grid-template-columns:1fr;}}
+.changes-table-wrap{overflow:auto;max-height:420px;}
+.sub-tab-strip{display:flex;gap:0;margin-bottom:18px;border-bottom:2px solid var(--ff-border-soft);}
+.sub-tab-btn{padding:9px 24px;border:none;border-radius:6px 6px 0 0;font-size:.87rem;font-weight:700;cursor:pointer;background:transparent;color:var(--ff-gray);font-family:inherit;position:relative;bottom:-2px;border-bottom:2px solid transparent;}
+.sub-tab-btn:hover{color:var(--ff-pink);}
+.sub-tab-btn.active{color:var(--ff-pink);border-bottom:2px solid var(--ff-pink);}
+
+.p-cloud{background:#fde8ec;color:#b30d3f;} .p-hardware{background:#fff3cd;color:#856404;}
+.p-network{background:#d1ecf1;color:#0c5460;} .p-swmaint{background:#d4edda;color:#155724;}
+.p-swsubs{background:#e2d9f3;color:#4a1990;} .p-techsvc{background:#fde8ec;color:#721c24;}
+.p-materials{background:#f8d7da;color:#721c24;} .p-other{background:#eee;color:#555;}
+
+.view{display:none;} .view.active{display:block;}
+footer{text-align:center;padding:16px;font-size:.72rem;color:#bbb;border-top:1px solid var(--ff-border-soft);margin-top:8px;}
+
+/* ── Modal ──────────────────────────────────────────────────────── */
+.modal-overlay{position:fixed;inset:0;background:rgba(26,26,26,.5);z-index:9000;display:flex;align-items:flex-start;justify-content:center;padding:5vh 16px;overflow-y:auto;}
+.modal-card{width:100%;max-width:720px;background:#FFF;border-top:3px solid var(--ff-pink);border-radius:8px;box-shadow:0 20px 60px rgba(0,0,0,.25);}
+.modal-hd{display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid var(--ff-border-soft);}
+.modal-hd h3{font-family:'Nunito',sans-serif;font-size:19px;font-weight:800;color:var(--ff-black);}
+.modal-body{padding:18px 22px;max-height:65vh;overflow-y:auto;}
+.modal-foot{display:flex;justify-content:space-between;gap:10px;padding:16px 22px;border-top:1px solid var(--ff-border-soft);}
+.field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;}
+.field{margin-bottom:12px;}
+.field label{display:block;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--ff-gray);margin-bottom:4px;}
+.field input,.field select{width:100%;padding:8px 10px;border:1.5px solid var(--ff-border);border-radius:5px;font-size:.85rem;font-family:inherit;}
+.field input:focus,.field select:focus{outline:none;border-color:var(--ff-pink);}
+.months-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:6px;}
+.months-grid .mfield label{font-size:.62rem;color:var(--ff-faint);font-weight:700;margin-bottom:2px;}
+.months-grid .mfield input{padding:6px 7px;font-size:.78rem;font-family:'JetBrains Mono',monospace;}
+.btn-primary{padding:9px 20px;border:none;border-radius:5px;background:var(--ff-pink);color:#FFF;font-weight:700;font-size:.85rem;cursor:pointer;font-family:inherit;}
+.btn-primary:hover{background:var(--ff-pink-dark);}
+.btn-ghost{padding:9px 20px;border:1.5px solid var(--ff-border);border-radius:5px;background:#FFF;color:var(--ff-charcoal);font-weight:700;font-size:.85rem;cursor:pointer;font-family:inherit;}
+.btn-ghost:hover{background:var(--ff-bg);}
+.btn-danger{padding:9px 20px;border:none;border-radius:5px;background:var(--ff-red);color:#FFF;font-weight:700;font-size:.85rem;cursor:pointer;font-family:inherit;}
+.btn-danger:hover{background:#a00d24;}
+
+.drop-zone{border:2.5px dashed var(--ff-border);border-radius:8px;padding:30px 20px;text-align:center;cursor:pointer;transition:border-color .2s,background .2s;}
+.drop-zone.drag-over{border-color:var(--ff-pink);background:var(--ff-pink-pale);}
+.drop-zone h4{font-size:1rem;font-weight:700;margin-bottom:6px;}
+.drop-zone p{font-size:.82rem;color:var(--ff-gray);margin-bottom:16px;}
+.import-status{margin-top:14px;font-size:.82rem;padding:10px 12px;border-radius:5px;display:none;}
+.import-status.ok{background:var(--ff-green-soft);color:var(--ff-green);display:block;}
+.import-status.err{background:var(--ff-red-soft);color:var(--ff-red);display:block;}
+.template-link{font-size:.78rem;color:var(--ff-pink);cursor:pointer;text-decoration:underline;display:inline-block;margin-top:10px;}
+</style>
+</head>
+<body>
+
+<div id="loadScreen">
+  <div class="brand">FY27 IT Opex Tracker</div>
+  <div class="sub"><span class="dot"></span>IT Cost Centre 155 · Loading</div>
+</div>
+
+<div id="dashboard">
+<header>
+  <div class="hd-wrap">
+    <div class="hd-left">
+      <svg viewBox="0 0 90 70" xmlns="http://www.w3.org/2000/svg">
+        <g fill="none" stroke="#ED1651" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M 18 50 L 18 60 M 70 50 L 70 60"/>
+          <path d="M 12 32 Q 12 18 26 18 L 60 18 Q 76 18 76 32 L 76 50 L 12 50 Z" fill="none"/>
+          <path d="M 24 50 Q 24 36 44 36 Q 64 36 64 50" fill="none"/>
+        </g>
+        <circle cx="56" cy="29" r="3.5" fill="#ED1651"/>
+      </svg>
+      <div>
+        <div class="hd-title">FY27 IT Opex Tracker</div>
+        <div class="hd-sub">IT Cost Centre 155 · Third-Party OpEx · Confidential</div>
+      </div>
+      <div class="tab-strip">
+        <button class="tab-btn active" onclick="switchTab('opex',this)">OpEx</button>
+        <button class="tab-btn" onclick="switchTab('trends',this)">Trends</button>
+      </div>
+    </div>
+    <div class="hd-right">
+      <span class="live-pill">● Live · Supabase</span>
+      <button class="hd-btn" id="editModeBtn" onclick="toggleEditMode()">✎ Edit Mode</button>
+      <button class="hd-btn" onclick="openImportModal()">⬆ Import CSV</button>
+      <div class="total-badge">
+        <small id="badgeLabel">FY27 Budget</small>
+        <span id="grandTotalDisplay">–</span>
+      </div>
+      <span class="hd-user" id="hdUser"></span>
+      <span class="hd-user"><a onclick="signOut()">Sign out</a></span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<!-- OPEX VIEW -->
+<div id="view-opex" class="view active">
+  <div class="month-sel" id="monthSel"></div>
+  <div class="kpi-strip" id="opexKpis"></div>
+  <div class="body-cols">
+    <div class="charts-col">
+      <div class="card"><div class="card-title">Budget by Category</div><canvas id="opexDonut"></canvas></div>
+      <div class="card"><div class="card-title" id="opexBarTitle">Top 10 Line Items</div><canvas id="opexBar"></canvas></div>
+    </div>
+    <div>
+      <div class="card">
+        <div class="card-title" id="opexTableTitle">Line Item Detail</div>
+        <div class="controls">
+          <input class="search-box" id="opexSearch" type="text" placeholder="Search description, vendor or reference…">
+          <select id="opexTypeFilter"><option value="">All Categories</option></select>
+          <button class="sort-btn" id="opexSortAsc" onclick="opexSetSort('asc')">$ Low→High</button>
+          <button class="sort-btn active" id="opexSortDesc" onclick="opexSetSort('desc')">$ High→Low</button>
+          <button class="add-btn" id="addItemBtn" style="display:none" onclick="openEditModal(null)">+ Add Line Item</button>
+          <span class="result-count" id="opexCount"></span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead id="opexThead"></thead>
+            <tbody id="opexBody"></tbody>
+            <tfoot id="opexFoot"></tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TRENDS VIEW -->
+<div id="view-trends" class="view">
+  <div class="sub-tab-strip">
+    <button class="sub-tab-btn active" id="stab-opex" onclick="switchTrendsSubTab('opex',this)">OpEx Trends</button>
+    <button class="sub-tab-btn" id="stab-expiry" onclick="switchTrendsSubTab('expiry',this)">Contract Expiry</button>
+  </div>
+
+  <div id="trends-sub-opex">
+    <div class="kpi-strip" id="trendsKpis"></div>
+
+    <div class="card" style="margin-bottom:18px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+        <div class="card-title" style="margin:0;border:none;padding:0">Savings Progress toward $2,000,000 Target</div>
+        <span id="progressLabel" style="font-size:.82rem;font-weight:700;color:var(--ff-gray)"></span>
+      </div>
+      <div style="background:#eee;border-radius:8px;height:24px;overflow:hidden;position:relative">
+        <div id="progressBar" style="height:100%;border-radius:8px;background:var(--ff-green);transition:width .6s ease;width:0%"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:5px;font-size:.72rem;color:var(--ff-gray)">
+        <span>$0</span><span>$1,000,000</span><span>$2,000,000 target</span>
+      </div>
+    </div>
+
+    <div class="trend-grid">
+      <div class="card"><div class="card-title">Cumulative Savings — vs FY27 Budget Baseline</div><canvas id="trendCumLine"></canvas></div>
+      <div class="card"><div class="card-title">New Savings Identified Each Month</div><canvas id="trendMonthBar"></canvas></div>
+      <div class="card"><div class="card-title">Savings by Category — Cumulative per Month</div><canvas id="trendCatBar"></canvas></div>
+      <div class="card"><div class="card-title">OpEx Budget Trajectory — All Months</div><canvas id="trendBudgetLine"></canvas></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Cost Initiative Log — items where budget changed from FY27 baseline</div>
+      <div class="changes-table-wrap">
+        <table>
+          <thead><tr>
+            <th>Reference</th><th>Description</th><th>Category</th>
+            <th style="text-align:right">FY27 Budget</th>
+            <th style="text-align:center">First identified</th>
+            <th style="text-align:right">Latest Value</th>
+            <th style="text-align:right">Saving $</th>
+            <th style="text-align:right">Saving %</th>
+            <th>Status</th>
+            <th style="text-align:center;min-width:200px">Month-by-month</th>
+          </tr></thead>
+          <tbody id="changesBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="trends-sub-expiry" style="display:none">
+    <div class="kpi-strip" id="expiryKpis"></div>
+    <div class="card" style="margin-bottom:18px">
+      <div class="card-title">Projected Third-Party OpEx Run-Rate as Contracts Expire</div>
+      <canvas id="expiryProjectionLine"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-title">Contract Expiry Schedule</div>
+      <div class="changes-table-wrap">
+        <table>
+          <thead><tr>
+            <th>Reference</th><th>Description</th><th>Vendor</th><th>Category</th>
+            <th style="text-align:right">Current Cost</th>
+            <th style="text-align:center">Contract End Date</th>
+            <th style="text-align:right">Days Left</th>
+            <th style="text-align:right">Post-Expiry Value</th>
+            <th style="text-align:right">Change $</th>
+            <th style="text-align:right">Change %</th>
+            <th>Status</th>
+          </tr></thead>
+          <tbody id="expiryBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+</main>
+<footer>IT Cost Centre 155 &mdash; FY27 IT Opex Tracker &nbsp;|&nbsp; Fantastic Furniture &nbsp;|&nbsp; Confidential</footer>
+</div>
+
+<!-- Edit / Add Item Modal -->
+<div class="modal-overlay" id="editModal" style="display:none">
+  <div class="modal-card">
+    <div class="modal-hd">
+      <h3 id="editModalTitle">Edit Line Item</h3>
+      <button class="icon-btn" onclick="closeEditModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field-row">
+        <div class="field"><label>Reference</label><input id="f-ref" type="text" placeholder="IT155-FY27-1"></div>
+        <div class="field"><label>Vendor</label><input id="f-vendor" type="text"></div>
+      </div>
+      <div class="field"><label>Description</label><input id="f-desc" type="text"></div>
+      <div class="field-row">
+        <div class="field"><label>Category</label><input id="f-category" type="text" list="categoryList" placeholder="e.g. Software Subscriptions"><datalist id="categoryList"></datalist></div>
+        <div class="field"><label>FY27 Budget ($)</label><input id="f-budget" type="number" step="1"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Contract End Date</label><input id="f-contractEnd" type="date"></div>
+        <div class="field"><label>Post-Expiry Annual Value ($)</label><input id="f-renewal" type="number" step="1" placeholder="leave blank if unknown"></div>
+      </div>
+      <div class="field">
+        <label>Monthly Values ($) — Jul-26 → Dec-27</label>
+        <div class="months-grid" id="monthsGrid"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-danger" id="deleteItemBtn" onclick="deleteCurrentItem()" style="display:none">Delete Item</button>
+      <div style="margin-left:auto;display:flex;gap:10px">
+        <button class="btn-ghost" onclick="closeEditModal()">Cancel</button>
+        <button class="btn-primary" onclick="saveCurrentItem()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Import CSV Modal -->
+<div class="modal-overlay" id="importModal" style="display:none">
+  <div class="modal-card">
+    <div class="modal-hd">
+      <h3>Import CSV</h3>
+      <button class="icon-btn" onclick="closeImportModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="drop-zone" id="dropZone">
+        <h4>Drop your OpEx CSV here</h4>
+        <p>Columns: Reference · Description · Vendor · Category · FY27 Budget · Jul-26…Dec-27 · Contract End Date · Post-Expiry Value.<br>
+        Existing rows (matched by Reference) are updated; new references are inserted.</p>
+        <button class="btn-primary" onclick="document.getElementById('csvFileInput').click()">Choose File</button>
+        <input type="file" id="csvFileInput" accept=".csv" style="display:none">
+        <div><span class="template-link" onclick="downloadTemplate()">Download blank CSV template</span></div>
+      </div>
+      <div class="import-status" id="importStatus"></div>
+    </div>
+    <div class="modal-foot">
+      <div style="margin-left:auto">
+        <button class="btn-ghost" onclick="closeImportModal()">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script>
+/* ══════════════════════════════════════════════════════════
+   CONSTANTS & HELPERS
+══════════════════════════════════════════════════════════ */
+const SAVINGS_TARGET = 2000000;
+const MONTH_COLS = 18;              // Jul-26 .. Dec-27
+const MONTH_START_YEAR = 2026;
+const MONTH_START_INDEX = 6;        // July = index 6 (Jan=0)
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function monthLabel(idx) {
+  const total = MONTH_START_INDEX + idx;
+  const year = MONTH_START_YEAR + Math.floor(total / 12);
+  const mIdx = total % 12;
+  return MONTH_NAMES[mIdx] + '-' + String(year).slice(2);
+}
+const MONTH_LABELS = Array.from({length: MONTH_COLS}, (_, i) => monthLabel(i));
+
+const fmt    = v => '$' + Math.round(v||0).toLocaleString('en-AU');
+const fmtPct = v => (v*100).toFixed(0)+'%';
+const num    = v => typeof v === 'number' ? v : 0;
+
+const CHART_COLORS = ['#ED1651','#2A6FB0','#1F8A47','#C97D1F','#7B2D8E','#2A2A2A','#B30D3F','#5A9B8F'];
+const TYPE_PILL = {
+  "Cloud Services":"p-cloud","Hardware Maintenance":"p-hardware",
+  "Network and Communication":"p-network","Software Maintenance":"p-swmaint",
+  "Software Subscriptions":"p-swsubs","Technology Support Services":"p-techsvc",
+  "Materials and Consumables":"p-materials"
+};
+
+function makeKpi(label, value, sub, plain, onclick) {
+  const c = document.createElement('div');
+  c.className = 'kpi-card' + (plain ? ' plain' : '');
+  c.innerHTML = `<div class="kpi-label">${label}</div><div class="kpi-value">${value}</div>${sub?`<div class="kpi-count">${sub}</div>`:''}`;
+  if (onclick) c.addEventListener('click', onclick);
+  return c;
+}
+
+function cleanNumber(v) {
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'number') return isNaN(v) ? null : v;
+  const s = String(v).replace(/[^0-9.\-]/g, '').trim();
+  if (s === '' || s === '-' || s === '.') return null;
+  const n = parseFloat(s);
+  return isNaN(n) ? null : n;
+}
+function toISODate(d) {
+  if (!d) return null;
+  const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+function fromISODate(s) {
+  if (!s) return null;
+  const parts = String(s).slice(0,10).split('-').map(Number);
+  if (parts.length !== 3 || parts.some(isNaN)) return null;
+  return new Date(parts[0], parts[1]-1, parts[2]);
+}
+function parseDateFlexible(v) {
+  if (!v) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+function dateFmt(d) { return d ? d.toLocaleDateString('en-AU', {day:'2-digit', month:'short', year:'numeric'}) : '–'; }
+
+/* ══════════════════════════════════════════════════════════
+   SUPABASE — auth, fetch, persist, realtime
+══════════════════════════════════════════════════════════ */
+const ALLOWED = (window.ALLOWED_EMAIL_DOMAINS || ['@allegrofunds.com.au', '@fantasticfurniture.com.au']);
+function domainOk(email) {
+  email = (email || '').trim().toLowerCase();
+  return ALLOWED.some(d => email.slice(-d.length) === d.toLowerCase());
+}
+
+function rowToItem(row) {
+  return {
+    ref: row.ref,
+    desc: row.description || '',
+    vendor: row.vendor || '',
+    type: row.category || 'Uncategorised',
+    budget: Number(row.fy27_budget) || 0,
+    months: Array.from({length: MONTH_COLS}, (_, i) => {
+      const v = row['month_' + (i+1)];
+      return (v === null || v === undefined) ? null : Number(v);
+    }),
+    contractEnd: row.contract_end_date ? fromISODate(row.contract_end_date) : null,
+    renewalValue: (row.post_expiry_value === null || row.post_expiry_value === undefined) ? null : Number(row.post_expiry_value)
+  };
+}
+function itemToRow(item) {
+  const row = {
+    ref: item.ref,
+    description: item.desc || '',
+    vendor: item.vendor || '',
+    category: item.type || 'Uncategorised',
+    fy27_budget: item.budget || 0,
+    contract_end_date: item.contractEnd ? toISODate(item.contractEnd) : null,
+    post_expiry_value: item.renewalValue === null || item.renewalValue === undefined ? null : item.renewalValue
+  };
+  item.months.forEach((v, i) => { row['month_' + (i+1)] = (v === null || v === undefined) ? null : v; });
+  return row;
+}
+
+async function loadOpexFromSupabase() {
+  const { data, error } = await db.from('opex_items').select('*').order('ref');
+  if (error) { console.error('[Opex] load error', error); alert('Could not load data: ' + error.message); return; }
+  OPEX = (data || []).map(rowToItem);
+}
+
+let realtimeChannel = null;
+function subscribeRealtime() {
+  if (realtimeChannel) return;
+  let debounceTimer = null;
+  realtimeChannel = db.channel('opex-items-changes')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'opex_items' }, () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(async () => { await loadOpexFromSupabase(); rerenderAll(); }, 800);
+    })
+    .subscribe();
+}
+
+function rerenderAll() {
+  const awi = activeMonthIndices();
+  if (selectedMonth !== null && !awi.includes(selectedMonth)) selectedMonth = awi.length ? awi[awi.length-1] : null;
+  buildOpex();
+  if (document.getElementById('view-trends').classList.contains('active')) buildTrends();
+  else updateHeaderBadgeForTab();
+}
+
+async function signOut() {
+  await db.auth.signOut();
+  window.location.href = 'login.html';
+}
+
+/* ══════════════════════════════════════════════════════════
+   STATE
+══════════════════════════════════════════════════════════ */
+let OPEX = [];
+let selectedMonth = null;   // null = FY27 Budget baseline; 0..17 = month index
+let editModeOn = false;
+let editingRef = null;      // ref of item currently open in the modal, or null = "add new"
+
+let opexChartDonut, opexChartBar;
+let trendCumLine, trendMonthBar, trendCatBar, trendBudgetLine;
+let expiryProjectionChart;
+let currentTrendsSubTab = 'opex';
+
+let opexType = '', opexSortField = 'budget', opexSortDir = 'desc', opexSearch = '';
+
+/* ── helpers ── */
+function activeMonthIndices() {
+  return Array.from({length: MONTH_COLS}, (_, i) => i).filter(i => OPEX.some(r => r.months[i] !== null));
+}
+function monthValue(item, mi) {
+  for (let k = mi; k >= 0; k--) { if (item.months[k] !== null) return item.months[k]; }
+  return item.budget;
+}
+function latestMonthIdx() {
+  const a = activeMonthIndices();
+  return a.length ? a[a.length - 1] : null;
+}
+function currentCost(item) {
+  const mi = latestMonthIdx();
+  return mi === null ? item.budget : monthValue(item, mi);
+}
+function totalForMonth(mi) {
+  if (mi === null) return OPEX.reduce((s,r) => s + r.budget, 0);
+  return OPEX.reduce((s,r) => s + monthValue(r, mi), 0);
+}
+function savingsForMonth(mi) {
+  if (mi === null || mi < 0) return 0;
+  return OPEX.reduce((s, r) => { const diff = r.budget - monthValue(r, mi); return s + (diff > 0 ? diff : 0); }, 0);
+}
+function savingsByTypeForMonth(mi) {
+  const byType = {};
+  if (mi === null) return byType;
+  OPEX.forEach(r => { const diff = r.budget - monthValue(r, mi); if (diff > 0) byType[r.type] = (byType[r.type]||0) + diff; });
+  return byType;
+}
+
+/* ══════════════════════════════════════════════════════════
+   BOOT / AUTH
+══════════════════════════════════════════════════════════ */
+async function boot() {
+  const { data: { session } } = await db.auth.getSession();
+  if (!session || !domainOk(session.user.email)) {
+    await db.auth.signOut();
+    window.location.href = 'login.html';
+    return;
+  }
+  document.getElementById('hdUser').textContent = session.user.email;
+
+  db.auth.onAuthStateChange((evt) => { if (evt === 'SIGNED_OUT') window.location.href = 'login.html'; });
+
+  await loadOpexFromSupabase();
+
+  document.getElementById('loadScreen').style.display = 'none';
+  document.getElementById('dashboard').style.display = 'block';
+
+  const awi = activeMonthIndices();
+  selectedMonth = awi.length ? awi[awi.length - 1] : null;
+
+  buildOpex();
+  updateHeaderBadgeForTab();
+  subscribeRealtime();
+}
+boot();
+
+/* ══════════════════════════════════════════════════════════
+   EDIT MODE
+══════════════════════════════════════════════════════════ */
+function toggleEditMode() {
+  editModeOn = !editModeOn;
+  document.getElementById('editModeBtn').classList.toggle('on', editModeOn);
+  document.getElementById('addItemBtn').style.display = editModeOn ? '' : 'none';
+  renderOpex();
+}
+
+/* ══════════════════════════════════════════════════════════
+   OPEX TAB
+══════════════════════════════════════════════════════════ */
+function buildMonthSelector() {
+  const el = document.getElementById('monthSel');
+  el.innerHTML = '';
+  const lbl = document.createElement('span'); lbl.className = 'month-lbl'; lbl.textContent = 'Viewing:'; el.appendChild(lbl);
+
+  const base = document.createElement('button');
+  base.className = 'month-btn baseline' + (selectedMonth === null ? ' active' : '');
+  base.textContent = 'FY27 Budget';
+  base.addEventListener('click', () => { selectedMonth = null; buildOpex(); });
+  el.appendChild(base);
+
+  const awi = activeMonthIndices();
+  const latest = awi.length ? awi[awi.length-1] : -1;
+  awi.forEach(mi => {
+    const btn = document.createElement('button');
+    btn.className = 'month-btn' + (mi === selectedMonth ? ' active' : '') + (mi === latest ? ' latest' : '');
+    btn.textContent = monthLabel(mi);
+    btn.addEventListener('click', () => { selectedMonth = mi; buildOpex(); });
+    el.appendChild(btn);
+  });
+}
+
+function buildOpex() {
+  buildMonthSelector();
+
+  const isBaseline = selectedMonth === null;
+  const monthLbl = isBaseline ? 'FY27 Budget' : monthLabel(selectedMonth);
+  const grandTotal = totalForMonth(selectedMonth);
+  const budgetTotal = OPEX.reduce((s,r) => s+r.budget, 0);
+  const totalSaving = isBaseline ? 0 : savingsForMonth(selectedMonth);
+  const opexTypes = [...new Set(OPEX.map(r=>r.type))].sort();
+  const opexByType = {};
+  opexTypes.forEach(t => { opexByType[t] = OPEX.filter(r=>r.type===t); });
+
+  const kpiEl = document.getElementById('opexKpis');
+  kpiEl.innerHTML = '';
+  kpiEl.appendChild(makeKpi('FY27 Budget', fmt(budgetTotal), OPEX.length+' items', true, () => opexFilterByType('', kpiEl)));
+  if (!isBaseline) {
+    const sv = makeKpi(monthLbl+' Total', fmt(grandTotal), 'current negotiated', true);
+    sv.querySelector('.kpi-value').style.color = grandTotal < budgetTotal ? 'var(--ff-green)' : 'var(--ff-pink)';
+    kpiEl.appendChild(sv);
+    const savCard = makeKpi('Savings Identified', fmt(totalSaving), (totalSaving/SAVINGS_TARGET*100).toFixed(1)+'% of $2M target', true);
+    savCard.querySelector('.kpi-value').style.color = 'var(--ff-green)';
+    kpiEl.appendChild(savCard);
+  }
+  opexTypes.forEach(t => {
+    const items = opexByType[t];
+    const sum = isBaseline ? items.reduce((s,r)=>s+r.budget,0) : items.reduce((s,r)=>s+monthValue(r,selectedMonth),0);
+    const c = makeKpi(t, fmt(sum), items.length+' items', false, () => opexFilterByType(t, kpiEl));
+    c.dataset.type = t;
+    kpiEl.appendChild(c);
+  });
+
+  const dd = document.getElementById('opexTypeFilter');
+  dd.innerHTML = '<option value="">All Categories</option>';
+  opexTypes.forEach(t => { const o=document.createElement('option'); o.value=t; o.textContent=t; dd.appendChild(o); });
+  dd.onchange = () => opexFilterByType(dd.value, kpiEl);
+  document.getElementById('opexSearch').oninput = e => { opexSearch=e.target.value.toLowerCase(); renderOpex(); };
+  opexSortField = isBaseline ? 'budget' : 'monthval';
+  opexSortDir = 'desc'; opexSearch = ''; opexType = '';
+
+  document.getElementById('opexTableTitle').textContent = isBaseline ? 'FY27 Budget — Line Item Detail' : `${monthLbl} vs FY27 Budget Baseline`;
+
+  if (opexChartDonut) opexChartDonut.destroy();
+  if (opexChartBar) opexChartBar.destroy();
+
+  const donutData = opexTypes.map(t => opexByType[t].reduce((s,r) => s+(isBaseline?r.budget:monthValue(r,selectedMonth)), 0));
+  opexChartDonut = new Chart(document.getElementById('opexDonut').getContext('2d'), {
+    type:'doughnut',
+    data:{ labels:opexTypes, datasets:[{data:donutData, backgroundColor:CHART_COLORS, borderWidth:2, borderColor:'#fff'}] },
+    options:{ cutout:'60%', plugins:{ legend:{position:'bottom',labels:{boxWidth:11,font:{size:10}}},
+      tooltip:{callbacks:{label:ctx=>` ${ctx.label}: ${fmt(ctx.parsed)} (${(ctx.parsed/grandTotal*100).toFixed(1)}%)`}} } }
+  });
+
+  const top10 = [...OPEX].sort((a,b) => (isBaseline?b.budget:monthValue(b,selectedMonth)) - (isBaseline?a.budget:monthValue(a,selectedMonth))).slice(0,10);
+  document.getElementById('opexBarTitle').textContent = `Top 10 — ${monthLbl}`;
+  opexChartBar = new Chart(document.getElementById('opexBar').getContext('2d'), {
+    type:'bar',
+    data:{
+      labels: top10.map(r=>r.desc.length>28?r.desc.slice(0,26)+'…':r.desc),
+      datasets:[{ label: monthLbl, data: top10.map(r=>isBaseline?r.budget:monthValue(r,selectedMonth)),
+        backgroundColor: top10.map((_,i)=>i===0?'#FF3870':'#ED1651'), borderRadius:3 }]
+    },
+    options:{indexAxis:'y',plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>' '+fmt(ctx.parsed.x)}}},
+      scales:{x:{ticks:{callback:v=>fmt(v),font:{size:10}},grid:{color:'#f0f0f0'}},y:{ticks:{font:{size:10}}}}}
+  });
+
+  document.getElementById('opexThead').innerHTML = `<tr>
+    <th onclick="opexSortBy('ref')">Reference</th>
+    <th onclick="opexSortBy('desc')">Description</th>
+    <th onclick="opexSortBy('vendor')">Vendor</th>
+    <th onclick="opexSortBy('type')">Category</th>
+    <th onclick="opexSortBy('budget')" style="text-align:right">FY27 Budget</th>
+    ${isBaseline ? '' : `<th onclick="opexSortBy('monthval')" style="text-align:right">${monthLbl}</th>
+    <th onclick="opexSortBy('saving')" style="text-align:right">Saving $</th>
+    <th style="text-align:right">Saving %</th>`}
+    <th style="text-align:right">% of Total</th>
+    <th style="text-align:center">Actions</th>
+  </tr>`;
+
+  opexFilterByType('', kpiEl);
+  updateHeaderBadgeForTab();
+}
+
+function opexFilterByType(t, kpiEl) {
+  opexType = t;
+  const dd = document.getElementById('opexTypeFilter');
+  if (dd) dd.value = t;
+  if (kpiEl) kpiEl.querySelectorAll('.kpi-card').forEach(c => c.classList.toggle('active', (c.dataset.type||'')===t));
+  renderOpex();
+}
+function opexSetSort(d) {
+  opexSortDir=d;
+  document.getElementById('opexSortAsc').classList.toggle('active', d==='asc');
+  document.getElementById('opexSortDesc').classList.toggle('active', d==='desc');
+  renderOpex();
+}
+function opexSortBy(f) {
+  if (opexSortField===f) { opexSortDir=opexSortDir==='asc'?'desc':'asc'; }
+  else { opexSortField=f; opexSortDir=['budget','monthval','saving'].includes(f)?'desc':'asc'; }
+  opexSetSort(opexSortDir);
+}
+
+function renderOpex() {
+  const isBaseline = selectedMonth === null;
+  const grandTotal = totalForMonth(selectedMonth);
+  const maxB = Math.max(...OPEX.map(r=>r.budget), 1);
+
+  let data = OPEX.filter(r => {
+    const mt = !opexType || r.type===opexType;
+    const ms = !opexSearch || r.desc.toLowerCase().includes(opexSearch) || r.vendor.toLowerCase().includes(opexSearch) || r.ref.toLowerCase().includes(opexSearch);
+    return mt && ms;
+  }).map(r => ({ ...r, monthval: isBaseline ? r.budget : monthValue(r, selectedMonth), saving: isBaseline ? 0 : r.budget - monthValue(r, selectedMonth) }));
+
+  data.sort((a,b) => {
+    let av = a[opexSortField], bv = b[opexSortField];
+    if (typeof av==='string') { av=av.toLowerCase(); bv=bv.toLowerCase(); }
+    return opexSortDir==='asc' ? (av<bv?-1:av>bv?1:0) : (av>bv?-1:av<bv?1:0);
+  });
+
+  const fBudget = data.reduce((s,r)=>s+r.budget, 0);
+  const fMonth = data.reduce((s,r)=>s+r.monthval, 0);
+  document.getElementById('opexCount').textContent = `${data.length} of ${OPEX.length} items`;
+
+  const colCount = (isBaseline ? 6 : 9) + 1;
+  document.getElementById('opexBody').innerHTML = data.length===0
+    ? `<tr><td colspan="${colCount}" class="no-results">No matching line items.</td></tr>`
+    : data.map(r => {
+        const sav = r.saving;
+        const savPct = r.budget ? (sav/r.budget*100) : 0;
+        const sc = sav>0?'var(--ff-green)':sav<0?'var(--ff-pink)':'#888';
+        return `<tr>
+          <td class="mono">${r.ref}</td>
+          <td>${r.desc}</td>
+          <td>${r.vendor||'<em style="color:#ccc">–</em>'}</td>
+          <td class="pill"><span class="${TYPE_PILL[r.type]||'p-other'}">${r.type}</span></td>
+          <td class="num" style="color:var(--ff-black)">${fmt(r.budget)}</td>
+          ${isBaseline ? '' : `
+          <td class="num" style="color:${r.monthval<r.budget?'var(--ff-green)':r.monthval>r.budget?'var(--ff-pink)':'var(--ff-black)'}">${fmt(r.monthval)}</td>
+          <td class="num" style="color:${sc};font-weight:700">${sav>0?'+':''}${fmt(sav)}</td>
+          <td style="text-align:right;color:${sc};font-weight:700;font-size:.8rem">${sav>0?'+':''}${savPct.toFixed(1)}%</td>`}
+          <td><div class="pct-wrap"><div class="pct-bar" style="width:${Math.max(2,Math.round(r.budget/maxB*70))}px"></div><span class="pct-lbl">${(r.budget/grandTotal*100).toFixed(1)}%</span></div></td>
+          <td style="text-align:center">${editModeOn ? `<div class="row-actions"><button class="icon-btn" title="Edit" onclick="openEditModal('${r.ref.replace(/'/g,"\\'")}')">✎</button><button class="icon-btn danger" title="Delete" onclick="quickDelete('${r.ref.replace(/'/g,"\\'")}')">🗑</button></div>` : ''}</td>
+        </tr>`;
+      }).join('');
+
+  if (data.length) {
+    const fSav = fBudget - fMonth;
+    const fSc = fSav>0?'var(--ff-green)':fSav<0?'var(--ff-pink)':'#888';
+    document.getElementById('opexFoot').innerHTML =
+      `<tr><td colspan="4" style="font-weight:800">Filtered Total (${data.length} items)</td>
+       <td class="num" style="color:var(--ff-black)">${fmt(fBudget)}</td>
+       ${isBaseline ? '' : `
+       <td class="num" style="color:${fSav>0?'var(--ff-green)':fSav<0?'var(--ff-pink)':'var(--ff-black)'}">${fmt(fMonth)}</td>
+       <td class="num" style="color:${fSc};font-weight:800">${fSav>0?'+':''}${fmt(fSav)}</td>
+       <td style="text-align:right;color:${fSc};font-weight:800">${fBudget?(fSav/fBudget*100).toFixed(1):0}%</td>`}
+       <td style="text-align:right">${(fBudget/grandTotal*100).toFixed(1)}%</td><td></td></tr>`;
+  } else {
+    document.getElementById('opexFoot').innerHTML = '';
+  }
+}
+
+function quickDelete(ref) {
+  if (!confirm('Delete line item ' + ref + '? This cannot be undone.')) return;
+  db.from('opex_items').delete().eq('ref', ref).then(({error}) => {
+    if (error) { alert('Delete failed: ' + error.message); return; }
+    loadOpexFromSupabase().then(rerenderAll);
+  });
+}
+
+/* ══════════════════════════════════════════════════════════
+   ADD / EDIT MODAL
+══════════════════════════════════════════════════════════ */
+function openEditModal(ref) {
+  editingRef = ref;
+  const item = ref ? OPEX.find(r => r.ref === ref) : null;
+  document.getElementById('editModalTitle').textContent = item ? 'Edit Line Item' : 'Add Line Item';
+  document.getElementById('deleteItemBtn').style.display = item ? '' : 'none';
+
+  document.getElementById('f-ref').value = item ? item.ref : '';
+  document.getElementById('f-ref').disabled = !!item;
+  document.getElementById('f-desc').value = item ? item.desc : '';
+  document.getElementById('f-vendor').value = item ? item.vendor : '';
+  document.getElementById('f-category').value = item ? item.type : '';
+  document.getElementById('f-budget').value = item ? item.budget : '';
+  document.getElementById('f-contractEnd').value = item && item.contractEnd ? toISODate(item.contractEnd) : '';
+  document.getElementById('f-renewal').value = (item && item.renewalValue !== null && item.renewalValue !== undefined) ? item.renewalValue : '';
+
+  const categories = [...new Set(OPEX.map(r => r.type))].sort();
+  document.getElementById('categoryList').innerHTML = categories.map(c => `<option value="${c}"></option>`).join('');
+
+  const grid = document.getElementById('monthsGrid');
+  grid.innerHTML = MONTH_LABELS.map((lbl, i) => {
+    const v = item ? item.months[i] : null;
+    return `<div class="mfield"><label>${lbl}</label><input type="number" step="1" id="f-month-${i}" value="${v===null||v===undefined?'':v}"></div>`;
+  }).join('');
+
+  document.getElementById('editModal').style.display = 'flex';
+}
+function closeEditModal() { document.getElementById('editModal').style.display = 'none'; editingRef = null; }
+
+async function saveCurrentItem() {
+  const ref = document.getElementById('f-ref').value.trim();
+  if (!ref) { alert('Reference is required.'); return; }
+  const item = {
+    ref,
+    desc: document.getElementById('f-desc').value.trim(),
+    vendor: document.getElementById('f-vendor').value.trim(),
+    type: document.getElementById('f-category').value.trim() || 'Uncategorised',
+    budget: cleanNumber(document.getElementById('f-budget').value) || 0,
+    contractEnd: parseDateFlexible(document.getElementById('f-contractEnd').value),
+    renewalValue: cleanNumber(document.getElementById('f-renewal').value),
+    months: Array.from({length: MONTH_COLS}, (_, i) => cleanNumber(document.getElementById('f-month-'+i).value))
+  };
+  const row = itemToRow(item);
+  const { error } = await db.from('opex_items').upsert(row, { onConflict: 'ref' });
+  if (error) { alert('Save failed: ' + error.message); return; }
+  closeEditModal();
+  await loadOpexFromSupabase();
+  rerenderAll();
+}
+function deleteCurrentItem() {
+  if (!editingRef) return;
+  const ref = editingRef;
+  closeEditModal();
+  quickDelete(ref);
+}
+
+/* ══════════════════════════════════════════════════════════
+   IMPORT CSV
+══════════════════════════════════════════════════════════ */
+const dropZone = document.getElementById('dropZone');
+const csvFileInput = document.getElementById('csvFileInput');
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('drag-over');
+  const f = e.dataTransfer.files[0]; if (f) handleCsvFile(f);
+});
+csvFileInput.addEventListener('change', e => { if (e.target.files[0]) handleCsvFile(e.target.files[0]); });
+
+function openImportModal() { document.getElementById('importModal').style.display = 'flex'; document.getElementById('importStatus').className = 'import-status'; }
+function closeImportModal() { document.getElementById('importModal').style.display = 'none'; csvFileInput.value = ''; }
+
+function handleCsvFile(file) {
+  const statusEl = document.getElementById('importStatus');
+  statusEl.className = 'import-status'; statusEl.textContent = '';
+  Papa.parse(file, {
+    header: true, skipEmptyLines: true,
+    complete: async results => {
+      try {
+        const rows = results.data.map(r => {
+          const ref = (r['Reference'] || '').trim();
+          if (!ref) return null;
+          const item = {
+            ref,
+            desc: (r['Description'] || '').trim(),
+            vendor: (r['Vendor'] || '').trim(),
+            type: (r['Category'] || 'Uncategorised').trim(),
+            budget: cleanNumber(r['FY27 Budget']) || 0,
+            contractEnd: parseDateFlexible(r['Contract End Date']),
+            renewalValue: cleanNumber(r['Post-Expiry Value']),
+            months: MONTH_LABELS.map(lbl => cleanNumber(r[lbl]))
+          };
+          return itemToRow(item);
+        }).filter(Boolean);
+
+        if (!rows.length) throw new Error('No rows with a Reference column found.');
+
+        const { error } = await db.from('opex_items').upsert(rows, { onConflict: 'ref' });
+        if (error) throw error;
+
+        statusEl.className = 'import-status ok';
+        statusEl.textContent = `✓ Imported ${rows.length} line item${rows.length===1?'':'s'}.`;
+        await loadOpexFromSupabase();
+        rerenderAll();
+      } catch (err) {
+        statusEl.className = 'import-status err';
+        statusEl.textContent = '⚠ ' + (err.message || String(err));
+      }
+    },
+    error: err => { statusEl.className = 'import-status err'; statusEl.textContent = '⚠ Could not parse the file: ' + err.message; }
+  });
+}
+
+function downloadTemplate() {
+  const header = ['Reference','Description','Vendor','Category','FY27 Budget', ...MONTH_LABELS, 'Contract End Date','Post-Expiry Value'];
+  const csv = header.join(',') + '\n';
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'fy27-opex-template.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/* ══════════════════════════════════════════════════════════
+   TRENDS TAB
+══════════════════════════════════════════════════════════ */
+function switchTrendsSubTab(tab, btn) {
+  currentTrendsSubTab = tab;
+  document.querySelectorAll('.sub-tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('trends-sub-opex').style.display = tab === 'opex' ? '' : 'none';
+  document.getElementById('trends-sub-expiry').style.display = tab === 'expiry' ? '' : 'none';
+  if (tab === 'opex') buildOpexTrends(); else buildExpiryTrends();
+  updateHeaderBadgeForTab();
+}
+function buildTrends() {
+  if (currentTrendsSubTab === 'expiry') buildExpiryTrends(); else buildOpexTrends();
+}
+
+function buildOpexTrends() {
+  const awi = activeMonthIndices();
+  const labels = awi.map(mi => monthLabel(mi));
+  const cumSav = awi.map(mi => savingsForMonth(mi));
+  const monthlyNew = cumSav.map((v,i) => i===0 ? v : Math.max(0, v - cumSav[i-1]));
+  const latestSav = cumSav.length ? cumSav[cumSav.length-1] : 0;
+  const pct = Math.min(100, latestSav / SAVINGS_TARGET * 100);
+  const remaining = Math.max(0, SAVINGS_TARGET - latestSav);
+
+  document.getElementById('progressBar').style.width = pct.toFixed(1)+'%';
+  document.getElementById('progressBar').style.background = pct>=100?'var(--ff-green)':pct>=50?'var(--ff-amber)':'var(--ff-pink)';
+  document.getElementById('progressLabel').textContent = `${fmt(latestSav)} identified of ${fmt(SAVINGS_TARGET)} (${pct.toFixed(1)}%)`;
+
+  const tkpis = document.getElementById('trendsKpis');
+  tkpis.innerHTML = '';
+  tkpis.appendChild(makeKpi('Savings Target', fmt(SAVINGS_TARGET), 'OpEx combined', true));
+  const sid = makeKpi('Total Identified', fmt(latestSav), pct.toFixed(1)+'% of target', true);
+  sid.querySelector('.kpi-value').style.color = latestSav>0?'var(--ff-green)':'#888';
+  tkpis.appendChild(sid);
+  const rem = makeKpi('Still to Find', fmt(remaining), remaining<=0?'🎯 Target reached!':'to reach $2M', true);
+  rem.querySelector('.kpi-value').style.color = remaining<=0?'var(--ff-green)':'var(--ff-pink)';
+  tkpis.appendChild(rem);
+
+  if (awi.length >= 2) {
+    const pace = latestSav / awi.length;
+    const monthsLeft = pace>0 ? Math.ceil(remaining/pace) : null;
+    tkpis.appendChild(makeKpi('Avg / Month', fmt(Math.round(pace)), monthsLeft!=null ? `~${monthsLeft} more month${monthsLeft!==1?'s':''} at this pace` : '–', true));
+    const firstBig = monthlyNew.indexOf(Math.max(...monthlyNew));
+    if (firstBig >= 0 && monthlyNew[firstBig] > 0) tkpis.appendChild(makeKpi('Best Month', monthLabel(awi[firstBig]), fmt(monthlyNew[firstBig])+' identified', true));
+  }
+
+  const allTypes = [...new Set(OPEX.map(r=>r.type))].sort();
+  [trendCumLine, trendMonthBar, trendCatBar, trendBudgetLine].forEach(c => { if(c) c.destroy(); });
+
+  trendCumLine = new Chart(document.getElementById('trendCumLine').getContext('2d'), {
+    type:'line',
+    data:{labels, datasets:[
+      { label:'Cumulative Savings', data:cumSav, borderColor:'#1F8A47', backgroundColor:'rgba(31,138,71,.1)', borderWidth:3, pointBackgroundColor:'#1F8A47', pointRadius:5, tension:.3, fill:true, order:1 },
+      { label:'$2M Target', data:awi.map(()=>SAVINGS_TARGET), borderColor:'#ED1651', borderWidth:2, borderDash:[6,4], pointRadius:0, fill:false, order:0 }
+    ]},
+    options:{plugins:{legend:{position:'bottom',labels:{boxWidth:11,font:{size:10}}}, tooltip:{callbacks:{label:ctx=>` ${ctx.dataset.label}: ${fmt(ctx.parsed.y)}`}}},
+      scales:{y:{beginAtZero:true,ticks:{callback:v=>fmt(v),font:{size:10}},grid:{color:'#f0f0f0'}},x:{ticks:{font:{size:10}}}}}
+  });
+
+  trendMonthBar = new Chart(document.getElementById('trendMonthBar').getContext('2d'), {
+    type:'bar',
+    data:{labels, datasets:[{ label:'New Savings This Month', data:monthlyNew, backgroundColor:monthlyNew.map(v=>v>0?'rgba(31,138,71,.8)':'#ddd'), borderRadius:4 }]},
+    options:{plugins:{legend:{display:false}, tooltip:{callbacks:{label:ctx=>` ${fmt(ctx.parsed.y)} identified`}}},
+      scales:{y:{beginAtZero:true,ticks:{callback:v=>fmt(v),font:{size:10}},grid:{color:'#f0f0f0'}},x:{ticks:{font:{size:10}}}}}
+  });
+
+  trendCatBar = new Chart(document.getElementById('trendCatBar').getContext('2d'), {
+    type:'bar',
+    data:{labels, datasets: allTypes.map((t,i) => ({ label:t, data: awi.map(mi => savingsByTypeForMonth(mi)[t] || 0), backgroundColor: CHART_COLORS[i % CHART_COLORS.length], borderRadius:2 }))},
+    options:{plugins:{legend:{position:'bottom',labels:{boxWidth:11,font:{size:9}}}, tooltip:{callbacks:{label:ctx=>` ${ctx.dataset.label}: ${fmt(ctx.parsed.y)} saved`}}},
+      scales:{x:{stacked:true,ticks:{font:{size:10}}}, y:{stacked:true,beginAtZero:true,ticks:{callback:v=>fmt(v),font:{size:10}},grid:{color:'#f0f0f0'}}}}
+  });
+
+  const budgetBase = OPEX.reduce((s,r)=>s+r.budget,0);
+  trendBudgetLine = new Chart(document.getElementById('trendBudgetLine').getContext('2d'), {
+    type:'line',
+    data:{labels:['FY27 Budget',...labels], datasets:[{ label:'Total OpEx Budget', data:[budgetBase, ...awi.map(mi=>totalForMonth(mi))],
+      borderColor:'#ED1651', backgroundColor:'rgba(237,22,81,.07)', borderWidth:3, pointBackgroundColor:'#ED1651', pointRadius:5, tension:.3, fill:true }]},
+    options:{plugins:{legend:{display:false}, tooltip:{callbacks:{label:ctx=>` ${fmt(ctx.parsed.y)}`}}},
+      scales:{y:{ticks:{callback:v=>fmt(v),font:{size:10}},grid:{color:'#f0f0f0'}},x:{ticks:{font:{size:10},autoSkip:false}}}}
+  });
+
+  renderChangeLog(awi);
+}
+
+function renderChangeLog(awi) {
+  const tbody = document.getElementById('changesBody');
+  if (!awi || !awi.length) { tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:32px;color:#bbb">No month data loaded yet.</td></tr>`; return; }
+
+  const log = OPEX.map(item => {
+    let firstMi = null;
+    awi.forEach(mi => { if (firstMi === null && item.months[mi] !== null && item.months[mi] !== item.budget) firstMi = mi; });
+    if (firstMi === null) return null;
+    const latestMi = awi[awi.length-1];
+    const latestVal = monthValue(item, latestMi);
+    const saving = item.budget - latestVal;
+    return { ...item, firstMi, latestVal, saving };
+  }).filter(Boolean).sort((a,b) => b.saving - a.saving);
+
+  if (!log.length) { tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:32px;color:#bbb">No changes detected vs FY27 Budget baseline.</td></tr>`; return; }
+
+  tbody.innerHTML = log.map(r => {
+    const sav = r.saving;
+    const savPct = r.budget ? (sav/r.budget*100).toFixed(1) : '0.0';
+    const sc = sav>0?'var(--ff-green)':sav<0?'var(--ff-pink)':'#888';
+    const badge = sav>0 ? '<span class="chg-new">SAVING</span>' : '<span class="chg-gone">INCREASE</span>';
+    const spark = awi.map(mi => {
+      const disp = monthValue(r, mi);
+      const diff = r.budget - disp;
+      const bg = diff>0 ? `rgba(31,138,71,${Math.min(0.8,diff/r.budget*4+0.15)})` : diff<0 ? 'rgba(237,22,81,.25)' : '#f4f4f4';
+      return `<td style="background:${bg};text-align:right;padding:4px 6px;font-size:.68rem;font-weight:700;white-space:nowrap;color:${diff>0?'#155724':diff<0?'#b30d3f':'#888'}">${fmt(disp)}</td>`;
+    }).join('');
+    return `<tr>
+      <td class="mono">${r.ref}</td><td>${r.desc}</td>
+      <td class="pill"><span class="${TYPE_PILL[r.type]||'p-other'}">${r.type}</span></td>
+      <td class="num" style="color:var(--ff-black)">${fmt(r.budget)}</td>
+      <td style="text-align:center;font-weight:700">${monthLabel(r.firstMi)}</td>
+      <td class="num" style="color:${r.latestVal<r.budget?'var(--ff-green)':r.latestVal>r.budget?'var(--ff-pink)':'#888'}">${fmt(r.latestVal)}</td>
+      <td class="num" style="color:${sc};font-weight:700">${sav>=0?'+':''}${fmt(sav)}</td>
+      <td style="text-align:right;color:${sc};font-weight:700">${sav>=0?'+':''}${savPct}%</td>
+      <td style="text-align:center">${badge}</td>
+      ${spark}
+    </tr>`;
+  }).join('');
+}
+
+/* ══════════════════════════════════════════════════════════
+   CONTRACT EXPIRY TRENDS
+══════════════════════════════════════════════════════════ */
+function buildExpiryTrends() {
+  const today = new Date();
+  const msDay = 86400 * 1000;
+
+  const tracked = OPEX.filter(r => r.contractEnd);
+  const upcoming = tracked.filter(r => r.contractEnd >= today);
+  const in90 = upcoming.filter(r => r.contractEnd <= new Date(today.getTime()+90*msDay));
+  const in12mo = upcoming.filter(r => r.contractEnd <= new Date(today.getTime()+365*msDay));
+  const missingRenewal = upcoming.filter(r => r.renewalValue === null);
+
+  const kpiEl = document.getElementById('expiryKpis');
+  kpiEl.innerHTML = '';
+  kpiEl.appendChild(makeKpi('Contracts Tracked', tracked.length, tracked.length ? 'with an end date set' : 'set via ✎ Edit', true));
+  kpiEl.appendChild(makeKpi('Expiring in 90 Days', in90.length, fmt(in90.reduce((s,r)=>s+currentCost(r),0))+' current cost', true));
+  kpiEl.appendChild(makeKpi('Expiring in 12 Months', in12mo.length, fmt(in12mo.reduce((s,r)=>s+currentCost(r),0))+' current cost', true));
+  if (missingRenewal.length) {
+    const warn = makeKpi('Needs Renewal $ Entered', missingRenewal.length, 'excluded from projection until filled in', true);
+    warn.querySelector('.kpi-value').style.color = '#ED1651';
+    kpiEl.appendChild(warn);
+  }
+
+  const eventsByDate = {};
+  upcoming.filter(r => r.renewalValue !== null).forEach(r => {
+    const key = r.contractEnd.toDateString();
+    if (!eventsByDate[key]) eventsByDate[key] = { date: r.contractEnd, diff: 0 };
+    eventsByDate[key].diff += currentCost(r) - r.renewalValue;
+  });
+  const sortedEvents = Object.values(eventsByDate).sort((a,b) => a.date - b.date);
+
+  const baseline = OPEX.reduce((s,r) => s + currentCost(r), 0);
+  const labels = ['Today']; const values = [baseline]; let running = baseline;
+  sortedEvents.forEach(e => { running -= e.diff; labels.push(dateFmt(e.date)); values.push(running); });
+  if (sortedEvents.length) { labels.push('Beyond last expiry'); values.push(running); }
+
+  if (expiryProjectionChart) expiryProjectionChart.destroy();
+  expiryProjectionChart = new Chart(document.getElementById('expiryProjectionLine').getContext('2d'), {
+    type:'line',
+    data:{ labels, datasets:[{ label:'Projected OpEx Run-Rate', data: values, stepped:true, borderColor:'#ED1651', backgroundColor:'rgba(237,22,81,.08)', borderWidth:3, pointBackgroundColor:'#ED1651', pointRadius:4, fill:true }]},
+    options:{ plugins:{ legend:{display:false}, tooltip:{callbacks:{label:ctx=>' '+fmt(ctx.parsed.y)}} },
+      scales:{ y:{ ticks:{callback:v=>fmt(v),font:{size:10}}, grid:{color:'#f0f0f0'} }, x:{ ticks:{font:{size:10}} } } }
+  });
+
+  const tbody = document.getElementById('expiryBody');
+  if (!tracked.length) {
+    tbody.innerHTML = `<tr><td colspan="11" style="text-align:center;padding:32px;color:#bbb">No contract end dates set yet. Use ✎ Edit Mode → Edit a line item to add a Contract End Date and Post-Expiry Value.</td></tr>`;
+    return;
+  }
+
+  const rows = tracked.map(r => {
+    const cc = currentCost(r);
+    const daysLeft = Math.round((r.contractEnd - today) / msDay);
+    const hasRenewal = r.renewalValue !== null;
+    const change = hasRenewal ? r.renewalValue - cc : null;
+    const changePct = (hasRenewal && cc) ? (change/cc*100) : null;
+    let statusCls, statusLbl;
+    if (daysLeft < 0) { statusCls='exp-expired'; statusLbl='Expired'; }
+    else if (!hasRenewal) { statusCls='exp-tbc'; statusLbl='Renewal TBC'; }
+    else if (daysLeft <= 90) { statusCls='exp-soon'; statusLbl='Expiring Soon'; }
+    else { statusCls='exp-active'; statusLbl='Active'; }
+    return { r, cc, daysLeft, change, changePct, statusCls, statusLbl };
+  }).sort((a,b) => a.r.contractEnd - b.r.contractEnd);
+
+  tbody.innerHTML = rows.map(x => {
+    const sc = x.change==null ? '#888' : x.change<0 ? 'var(--ff-green)' : x.change>0 ? 'var(--ff-pink)' : '#888';
+    return `<tr>
+      <td class="mono">${x.r.ref}</td><td>${x.r.desc}</td>
+      <td>${x.r.vendor||'<em style="color:#ccc">–</em>'}</td>
+      <td class="pill"><span class="${TYPE_PILL[x.r.type]||'p-other'}">${x.r.type}</span></td>
+      <td class="num" style="color:var(--ff-black)">${fmt(x.cc)}</td>
+      <td style="text-align:center">${dateFmt(x.r.contractEnd)}</td>
+      <td class="num" style="color:${x.daysLeft<0?'#888':x.daysLeft<=90?'var(--ff-pink)':'var(--ff-black)'}">${x.daysLeft}</td>
+      <td class="num">${x.r.renewalValue!==null?fmt(x.r.renewalValue):'<span style="color:#bbb">–</span>'}</td>
+      <td class="num" style="color:${sc};font-weight:700">${x.change==null?'–':(x.change>0?'+':'')+fmt(x.change)}</td>
+      <td style="text-align:right;color:${sc};font-weight:700">${x.changePct==null?'–':(x.changePct>0?'+':'')+x.changePct.toFixed(1)+'%'}</td>
+      <td class="pill"><span class="${x.statusCls}">${x.statusLbl}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+/* ══════════════════════════════════════════════════════════
+   TAB SWITCH
+══════════════════════════════════════════════════════════ */
+function switchTab(tab, btn) {
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.getElementById('view-'+tab).classList.add('active');
+  if (tab==='trends') requestAnimationFrame(buildTrends);
+  updateHeaderBadgeForTab(tab);
+}
+
+function updateHeaderBadgeForTab(tabOverride) {
+  const activeTabBtn = document.querySelector('.tab-btn.active');
+  const tab = tabOverride || (document.getElementById('view-trends').classList.contains('active') ? 'trends' : 'opex');
+  const mi = selectedMonth;
+  if (tab === 'opex') {
+    document.getElementById('badgeLabel').textContent = mi!==null ? `${monthLabel(mi)} OpEx Total` : 'FY27 OpEx Budget';
+    document.getElementById('grandTotalDisplay').textContent = fmt(totalForMonth(mi));
+  } else {
+    if (currentTrendsSubTab === 'expiry') {
+      const next12 = OPEX.filter(r => r.contractEnd && r.contractEnd >= new Date() && r.contractEnd <= new Date(Date.now()+365*86400*1000));
+      document.getElementById('badgeLabel').textContent = 'Contract Value Expiring (12mo)';
+      document.getElementById('grandTotalDisplay').textContent = fmt(next12.reduce((s,r)=>s+currentCost(r),0));
+    } else {
+      const awi = activeMonthIndices();
+      const ls = awi.length ? savingsForMonth(awi[awi.length-1]) : 0;
+      document.getElementById('badgeLabel').textContent = 'Savings Identified';
+      document.getElementById('grandTotalDisplay').textContent = fmt(ls);
+    }
+  }
+}
+</script>
+</body>
+</html>
