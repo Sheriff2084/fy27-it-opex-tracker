@@ -256,14 +256,17 @@ footer{text-align:center;padding:16px;font-size:.72rem;color:#bbb;border-top:1px
 
     <div class="card" style="margin-bottom:18px">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
-        <div class="card-title" style="margin:0;border:none;padding:0">Savings Progress toward $2,000,000 Target</div>
+        <div class="card-title" style="margin:0;border:none;padding:0;display:flex;align-items:center;gap:8px">
+          <span id="targetTitle">Savings Progress toward $2,000,000 Target</span>
+          <button class="icon-btn" onclick="openTargetModal()" title="Edit savings target">✎</button>
+        </div>
         <span id="progressLabel" style="font-size:.82rem;font-weight:700;color:var(--ff-gray)"></span>
       </div>
       <div style="background:#eee;border-radius:8px;height:24px;overflow:hidden;position:relative">
         <div id="progressBar" style="height:100%;border-radius:8px;background:var(--ff-green);transition:width .6s ease;width:0%"></div>
       </div>
       <div style="display:flex;justify-content:space-between;margin-top:5px;font-size:.72rem;color:var(--ff-gray)">
-        <span>$0</span><span>$1,000,000</span><span>$2,000,000 target</span>
+        <span>$0</span><span id="targetMid">$1,000,000</span><span id="targetEnd">$2,000,000 target</span>
       </div>
     </div>
 
@@ -386,12 +389,31 @@ footer{text-align:center;padding:16px;font-size:.72rem;color:#bbb;border-top:1px
   </div>
 </div>
 
+<!-- Edit Savings Target Modal -->
+<div class="modal-overlay" id="targetModal" style="display:none">
+  <div class="modal-card" style="max-width:420px">
+    <div class="modal-hd">
+      <h3>Edit Savings Target</h3>
+      <button class="icon-btn" onclick="closeTargetModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field"><label>Savings Target ($)</label><input id="f-target" type="number" step="1"></div>
+    </div>
+    <div class="modal-foot">
+      <div style="margin-left:auto;display:flex;gap:10px">
+        <button class="btn-ghost" onclick="closeTargetModal()">Cancel</button>
+        <button class="btn-primary" onclick="saveTarget()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="config.js"></script>
 <script>
 /* ══════════════════════════════════════════════════════════
    CONSTANTS & HELPERS
 ══════════════════════════════════════════════════════════ */
-const SAVINGS_TARGET = 2000000;
+let SAVINGS_TARGET = 2000000;   // default until loaded from app_settings; editable via the ✎ next to the progress bar
 const MONTH_COLS = 18;              // Jul-26 .. Dec-27
 const MONTH_START_YEAR = 2026;
 const MONTH_START_INDEX = 6;        // July = index 6 (Jan=0)
@@ -496,7 +518,13 @@ async function loadOpexFromSupabase() {
   OPEX = (data || []).map(rowToItem);
 }
 
+async function loadSettings() {
+  const { data, error } = await db.from('app_settings').select('savings_target').eq('id', 1).maybeSingle();
+  if (!error && data && data.savings_target != null) SAVINGS_TARGET = Number(data.savings_target);
+}
+
 let realtimeChannel = null;
+let settingsChannel = null;
 function subscribeRealtime() {
   if (realtimeChannel) return;
   let debounceTimer = null;
@@ -504,6 +532,17 @@ function subscribeRealtime() {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'opex_items' }, () => {
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(async () => { await loadOpexFromSupabase(); rerenderAll(); }, 800);
+    })
+    .subscribe();
+
+  let settingsDebounce = null;
+  settingsChannel = db.channel('app-settings-changes')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'app_settings' }, () => {
+      clearTimeout(settingsDebounce);
+      settingsDebounce = setTimeout(async () => {
+        await loadSettings();
+        if (currentTrendsSubTab === 'opex' && document.getElementById('view-trends').classList.contains('active')) buildOpexTrends();
+      }, 800);
     })
     .subscribe();
 }
@@ -582,7 +621,7 @@ async function boot() {
 
   db.auth.onAuthStateChange((evt) => { if (evt === 'SIGNED_OUT') window.location.href = 'login.html'; });
 
-  await loadOpexFromSupabase();
+  await Promise.all([loadOpexFromSupabase(), loadSettings()]);
 
   document.getElementById('loadScreen').style.display = 'none';
   document.getElementById('dashboard').style.display = 'block';
@@ -603,6 +642,25 @@ function toggleEditMode() {
   document.getElementById('editModeBtn').classList.toggle('on', editModeOn);
   document.getElementById('addItemBtn').style.display = editModeOn ? '' : 'none';
   renderOpex();
+}
+
+/* ══════════════════════════════════════════════════════════
+   SAVINGS TARGET
+══════════════════════════════════════════════════════════ */
+function openTargetModal() {
+  document.getElementById('f-target').value = SAVINGS_TARGET;
+  document.getElementById('targetModal').style.display = 'flex';
+}
+function closeTargetModal() { document.getElementById('targetModal').style.display = 'none'; }
+
+async function saveTarget() {
+  const v = cleanNumber(document.getElementById('f-target').value);
+  if (v === null || v <= 0) { alert('Enter a valid target amount.'); return; }
+  const { error } = await db.from('app_settings').upsert({ id: 1, savings_target: v }, { onConflict: 'id' });
+  if (error) { alert('Save failed: ' + error.message); return; }
+  SAVINGS_TARGET = v;
+  closeTargetModal();
+  if (currentTrendsSubTab === 'opex' && document.getElementById('view-trends').classList.contains('active')) buildOpexTrends();
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -649,7 +707,7 @@ function buildOpex() {
     const sv = makeKpi(monthLbl+' Total', fmt(grandTotal), 'current negotiated', true);
     sv.querySelector('.kpi-value').style.color = grandTotal < budgetTotal ? 'var(--ff-green)' : 'var(--ff-pink)';
     kpiEl.appendChild(sv);
-    const savCard = makeKpi('Savings Identified', fmt(totalSaving), (totalSaving/SAVINGS_TARGET*100).toFixed(1)+'% of $2M target', true);
+    const savCard = makeKpi('Savings Identified', fmt(totalSaving), (totalSaving/SAVINGS_TARGET*100).toFixed(1)+'% of '+fmt(SAVINGS_TARGET)+' target', true);
     savCard.querySelector('.kpi-value').style.color = 'var(--ff-green)';
     kpiEl.appendChild(savCard);
   }
@@ -963,6 +1021,9 @@ function buildOpexTrends() {
   document.getElementById('progressBar').style.width = pct.toFixed(1)+'%';
   document.getElementById('progressBar').style.background = pct>=100?'var(--ff-green)':pct>=50?'var(--ff-amber)':'var(--ff-pink)';
   document.getElementById('progressLabel').textContent = `${fmt(latestSav)} identified of ${fmt(SAVINGS_TARGET)} (${pct.toFixed(1)}%)`;
+  document.getElementById('targetTitle').textContent = `Savings Progress toward ${fmt(SAVINGS_TARGET)} Target`;
+  document.getElementById('targetMid').textContent = fmt(SAVINGS_TARGET / 2);
+  document.getElementById('targetEnd').textContent = `${fmt(SAVINGS_TARGET)} target`;
 
   const tkpis = document.getElementById('trendsKpis');
   tkpis.innerHTML = '';
@@ -989,7 +1050,7 @@ function buildOpexTrends() {
     type:'line',
     data:{labels, datasets:[
       { label:'Cumulative Savings', data:cumSav, borderColor:'#1F8A47', backgroundColor:'rgba(31,138,71,.1)', borderWidth:3, pointBackgroundColor:'#1F8A47', pointRadius:5, tension:.3, fill:true, order:1 },
-      { label:'$2M Target', data:awi.map(()=>SAVINGS_TARGET), borderColor:'#ED1651', borderWidth:2, borderDash:[6,4], pointRadius:0, fill:false, order:0 }
+      { label:fmt(SAVINGS_TARGET)+' Target', data:awi.map(()=>SAVINGS_TARGET), borderColor:'#ED1651', borderWidth:2, borderDash:[6,4], pointRadius:0, fill:false, order:0 }
     ]},
     options:{plugins:{legend:{position:'bottom',labels:{boxWidth:11,font:{size:10}}}, tooltip:{callbacks:{label:ctx=>` ${ctx.dataset.label}: ${fmt(ctx.parsed.y)}`}}},
       scales:{y:{beginAtZero:true,ticks:{callback:v=>fmt(v),font:{size:10}},grid:{color:'#f0f0f0'}},x:{ticks:{font:{size:10}}}}}
