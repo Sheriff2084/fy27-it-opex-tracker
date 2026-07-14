@@ -33,7 +33,7 @@ html,body{min-height:100vh;font-family:'Inter',system-ui,sans-serif;background:v
 /* ── Layout shell ───────────────────────────────────────────────── */
 #dashboard{display:none;}
 header{background:#FFF;border-bottom:3px solid var(--ff-pink);position:sticky;top:0;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.04);}
-.hd-wrap{max-width:1400px;margin:0 auto;padding:14px 28px;display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap;}
+.hd-wrap{width:97%;max-width:2200px;margin:0 auto;padding:14px 0;display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap;}
 .hd-left{display:flex;align-items:center;gap:12px;}
 .hd-left svg{width:44px;height:34px;flex-shrink:0;}
 .hd-title{font-family:'Nunito',sans-serif;font-size:21px;font-weight:800;color:var(--ff-pink);line-height:1.1;}
@@ -54,7 +54,7 @@ header{background:#FFF;border-bottom:3px solid var(--ff-pink);position:sticky;to
 .hd-user a:hover{text-decoration:underline;}
 .live-pill{background:var(--ff-green-soft);color:var(--ff-green);font-size:.7rem;font-weight:800;padding:4px 10px;border-radius:12px;white-space:nowrap;}
 
-main{max-width:1400px;margin:0 auto;padding:22px 28px;}
+main{width:97%;max-width:2200px;margin:0 auto;padding:22px 0;}
 .kpi-strip{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:20px;}
 .kpi-card{flex:1;min-width:150px;max-width:220px;background:var(--ff-card);border:1px solid var(--ff-border);border-top:3px solid var(--ff-pink);border-radius:6px;padding:14px 16px;box-shadow:0 1px 4px rgba(0,0,0,.05);cursor:pointer;transition:transform .12s,box-shadow .12s;}
 .kpi-card:hover{transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,.1);}
@@ -286,7 +286,6 @@ footer{text-align:center;padding:16px;font-size:.72rem;color:#bbb;border-top:1px
             <th style="text-align:right">Saving $</th>
             <th style="text-align:right">Saving %</th>
             <th>Status</th>
-            <th style="text-align:center;min-width:200px">Month-by-month</th>
           </tr></thead>
           <tbody id="changesBody"></tbody>
         </table>
@@ -1019,29 +1018,23 @@ function buildOpexTrends() {
       scales:{y:{ticks:{callback:v=>fmt(v),font:{size:10}},grid:{color:'#f0f0f0'}},x:{ticks:{font:{size:10},autoSkip:false}}}}
   });
 
-  renderChangeLog(awi);
+  renderChangeLog();
 }
 
-function renderChangeLog(awi) {
+function renderChangeLog() {
   const tbody = document.getElementById('changesBody');
 
   const log = OPEX.filter(item => item.revisedBudget !== null && item.effectiveMonthIdx !== null && item.revisedBudget !== item.budget)
     .map(item => ({ ...item, firstMi: item.effectiveMonthIdx, latestVal: item.revisedBudget, saving: item.budget - item.revisedBudget }))
     .sort((a,b) => b.saving - a.saving);
 
-  if (!log.length) { tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:32px;color:#bbb">No changes detected vs FY27 Budget baseline. Use ✎ Edit Mode to set a Revised Budget + Effective From month on a line item.</td></tr>`; return; }
+  if (!log.length) { tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:32px;color:#bbb">No changes detected vs FY27 Budget baseline. Use ✎ Edit Mode to set a Revised Budget + Effective From month on a line item.</td></tr>`; return; }
 
   tbody.innerHTML = log.map(r => {
     const sav = r.saving;
     const savPct = r.budget ? (sav/r.budget*100).toFixed(1) : '0.0';
     const sc = sav>0?'var(--ff-green)':sav<0?'var(--ff-pink)':'#888';
     const badge = sav>0 ? '<span class="chg-new">SAVING</span>' : '<span class="chg-gone">INCREASE</span>';
-    const spark = awi.map(mi => {
-      const disp = monthValue(r, mi);
-      const diff = r.budget - disp;
-      const bg = diff>0 ? `rgba(31,138,71,${Math.min(0.8,diff/r.budget*4+0.15)})` : diff<0 ? 'rgba(237,22,81,.25)' : '#f4f4f4';
-      return `<td style="background:${bg};text-align:right;padding:4px 6px;font-size:.68rem;font-weight:700;white-space:nowrap;color:${diff>0?'#155724':diff<0?'#b30d3f':'#888'}">${fmt(disp)}</td>`;
-    }).join('');
     return `<tr>
       <td class="mono">${r.ref}</td><td>${r.desc}</td>
       <td class="pill"><span class="${TYPE_PILL[r.type]||'p-other'}">${r.type}</span></td>
@@ -1051,7 +1044,6 @@ function renderChangeLog(awi) {
       <td class="num" style="color:${sc};font-weight:700">${sav>=0?'+':''}${fmt(sav)}</td>
       <td style="text-align:right;color:${sc};font-weight:700">${sav>=0?'+':''}${savPct}%</td>
       <td style="text-align:center">${badge}</td>
-      ${spark}
     </tr>`;
   }).join('');
 }
