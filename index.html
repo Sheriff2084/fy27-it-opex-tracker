@@ -151,9 +151,6 @@ footer{text-align:center;padding:16px;font-size:.72rem;color:#bbb;border-top:1px
 .field label{display:block;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--ff-gray);margin-bottom:4px;}
 .field input,.field select{width:100%;padding:8px 10px;border:1.5px solid var(--ff-border);border-radius:5px;font-size:.85rem;font-family:inherit;}
 .field input:focus,.field select:focus{outline:none;border-color:var(--ff-pink);}
-.months-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:6px;}
-.months-grid .mfield label{font-size:.62rem;color:var(--ff-faint);font-weight:700;margin-bottom:2px;}
-.months-grid .mfield input{padding:6px 7px;font-size:.78rem;font-family:'JetBrains Mono',monospace;}
 .btn-primary{padding:9px 20px;border:none;border-radius:5px;background:var(--ff-pink);color:#FFF;font-weight:700;font-size:.85rem;cursor:pointer;font-family:inherit;}
 .btn-primary:hover{background:var(--ff-pink-dark);}
 .btn-ghost{padding:9px 20px;border:1.5px solid var(--ff-border);border-radius:5px;background:#FFF;color:var(--ff-charcoal);font-weight:700;font-size:.85rem;cursor:pointer;font-family:inherit;}
@@ -349,9 +346,9 @@ footer{text-align:center;padding:16px;font-size:.72rem;color:#bbb;border-top:1px
         <div class="field"><label>Contract End Date</label><input id="f-contractEnd" type="date"></div>
         <div class="field"><label>Post-Expiry Annual Value ($)</label><input id="f-renewal" type="number" step="1" placeholder="leave blank if unknown"></div>
       </div>
-      <div class="field">
-        <label>Monthly Values ($) — Jul-26 → Dec-27</label>
-        <div class="months-grid" id="monthsGrid"></div>
+      <div class="field-row">
+        <div class="field"><label>Revised / Expected Budget ($)</label><input id="f-revised" type="number" step="1" placeholder="leave blank if no change expected"></div>
+        <div class="field"><label>Effective From</label><select id="f-effmonth"><option value="">—</option></select></div>
       </div>
     </div>
     <div class="modal-foot">
@@ -374,7 +371,7 @@ footer{text-align:center;padding:16px;font-size:.72rem;color:#bbb;border-top:1px
     <div class="modal-body">
       <div class="drop-zone" id="dropZone">
         <h4>Drop your OpEx CSV here</h4>
-        <p>Columns: Reference · Description · Vendor · Category · FY27 Budget · Jul-26…Dec-27 · Contract End Date · Post-Expiry Value.<br>
+        <p>Columns: Reference · Description · Vendor · Category · FY27 Budget · Revised Budget · Effective Month · Contract End Date · Post-Expiry Value.<br>
         Existing rows (matched by Reference) are updated; new references are inserted.</p>
         <button class="btn-primary" onclick="document.getElementById('csvFileInput').click()">Choose File</button>
         <input type="file" id="csvFileInput" accept=".csv" style="display:none">
@@ -473,26 +470,25 @@ function rowToItem(row) {
     vendor: row.vendor || '',
     type: row.category || 'Uncategorised',
     budget: Number(row.fy27_budget) || 0,
-    months: Array.from({length: MONTH_COLS}, (_, i) => {
-      const v = row['month_' + (i+1)];
-      return (v === null || v === undefined) ? null : Number(v);
-    }),
+    revisedBudget: (row.revised_budget === null || row.revised_budget === undefined) ? null : Number(row.revised_budget),
+    effectiveMonthIdx: (row.effective_month === null || row.effective_month === undefined) ? null : Number(row.effective_month),
     contractEnd: row.contract_end_date ? fromISODate(row.contract_end_date) : null,
     renewalValue: (row.post_expiry_value === null || row.post_expiry_value === undefined) ? null : Number(row.post_expiry_value)
   };
 }
 function itemToRow(item) {
-  const row = {
+  const hasRevision = item.revisedBudget !== null && item.revisedBudget !== undefined && item.effectiveMonthIdx !== null && item.effectiveMonthIdx !== undefined;
+  return {
     ref: item.ref,
     description: item.desc || '',
     vendor: item.vendor || '',
     category: item.type || 'Uncategorised',
     fy27_budget: item.budget || 0,
+    revised_budget: hasRevision ? item.revisedBudget : null,
+    effective_month: hasRevision ? item.effectiveMonthIdx : null,
     contract_end_date: item.contractEnd ? toISODate(item.contractEnd) : null,
     post_expiry_value: item.renewalValue === null || item.renewalValue === undefined ? null : item.renewalValue
   };
-  item.months.forEach((v, i) => { row['month_' + (i+1)] = (v === null || v === undefined) ? null : v; });
-  return row;
 }
 
 async function loadOpexFromSupabase() {
@@ -514,8 +510,6 @@ function subscribeRealtime() {
 }
 
 function rerenderAll() {
-  const awi = activeMonthIndices();
-  if (selectedMonth !== null && !awi.includes(selectedMonth)) selectedMonth = awi.length ? awi[awi.length-1] : null;
   buildOpex();
   if (document.getElementById('view-trends').classList.contains('active')) buildTrends();
   else updateHeaderBadgeForTab();
@@ -541,21 +535,24 @@ let currentTrendsSubTab = 'opex';
 
 let opexType = '', opexSortField = 'budget', opexSortDir = 'desc', opexSearch = '';
 
-/* ── helpers ── */
-function activeMonthIndices() {
-  return Array.from({length: MONTH_COLS}, (_, i) => i).filter(i => OPEX.some(r => r.months[i] !== null));
+/* ── helpers ──
+   Each item has its original fy27 budget plus at most one revision: a new
+   revisedBudget that takes effect from effectiveMonthIdx onward. monthValue
+   is therefore a simple step function — no per-month data entry needed. */
+function allMonthIndices() {
+  return Array.from({length: MONTH_COLS}, (_, i) => i);
+}
+function todayMonthIdx() {
+  const now = new Date();
+  const total = (now.getFullYear() - MONTH_START_YEAR) * 12 + (now.getMonth() - MONTH_START_INDEX);
+  return Math.max(0, Math.min(MONTH_COLS - 1, total));
 }
 function monthValue(item, mi) {
-  for (let k = mi; k >= 0; k--) { if (item.months[k] !== null) return item.months[k]; }
+  if (item.revisedBudget !== null && item.effectiveMonthIdx !== null && mi >= item.effectiveMonthIdx) return item.revisedBudget;
   return item.budget;
 }
-function latestMonthIdx() {
-  const a = activeMonthIndices();
-  return a.length ? a[a.length - 1] : null;
-}
 function currentCost(item) {
-  const mi = latestMonthIdx();
-  return mi === null ? item.budget : monthValue(item, mi);
+  return monthValue(item, todayMonthIdx());
 }
 function totalForMonth(mi) {
   if (mi === null) return OPEX.reduce((s,r) => s + r.budget, 0);
@@ -591,8 +588,7 @@ async function boot() {
   document.getElementById('loadScreen').style.display = 'none';
   document.getElementById('dashboard').style.display = 'block';
 
-  const awi = activeMonthIndices();
-  selectedMonth = awi.length ? awi[awi.length - 1] : null;
+  selectedMonth = todayMonthIdx();
 
   buildOpex();
   updateHeaderBadgeForTab();
@@ -624,11 +620,11 @@ function buildMonthSelector() {
   base.addEventListener('click', () => { selectedMonth = null; buildOpex(); });
   el.appendChild(base);
 
-  const awi = activeMonthIndices();
-  const latest = awi.length ? awi[awi.length-1] : -1;
-  awi.forEach(mi => {
+  const current = todayMonthIdx();
+  allMonthIndices().forEach(mi => {
     const btn = document.createElement('button');
-    btn.className = 'month-btn' + (mi === selectedMonth ? ' active' : '') + (mi === latest ? ' latest' : '');
+    btn.className = 'month-btn' + (mi === selectedMonth ? ' active' : '') + (mi === current ? ' latest' : '');
+    btn.title = mi === current ? 'Current month' : '';
     btn.textContent = monthLabel(mi);
     btn.addEventListener('click', () => { selectedMonth = mi; buildOpex(); });
     el.appendChild(btn);
@@ -824,11 +820,10 @@ function openEditModal(ref) {
   const categories = [...new Set(OPEX.map(r => r.type))].sort();
   document.getElementById('categoryList').innerHTML = categories.map(c => `<option value="${c}"></option>`).join('');
 
-  const grid = document.getElementById('monthsGrid');
-  grid.innerHTML = MONTH_LABELS.map((lbl, i) => {
-    const v = item ? item.months[i] : null;
-    return `<div class="mfield"><label>${lbl}</label><input type="number" step="1" id="f-month-${i}" value="${v===null||v===undefined?'':v}"></div>`;
-  }).join('');
+  document.getElementById('f-revised').value = (item && item.revisedBudget !== null && item.revisedBudget !== undefined) ? item.revisedBudget : '';
+  const effSel = document.getElementById('f-effmonth');
+  effSel.innerHTML = '<option value="">—</option>' + MONTH_LABELS.map((lbl, i) => `<option value="${i}">${lbl}</option>`).join('');
+  effSel.value = (item && item.effectiveMonthIdx !== null && item.effectiveMonthIdx !== undefined) ? item.effectiveMonthIdx : '';
 
   document.getElementById('editModal').style.display = 'flex';
 }
@@ -837,6 +832,13 @@ function closeEditModal() { document.getElementById('editModal').style.display =
 async function saveCurrentItem() {
   const ref = document.getElementById('f-ref').value.trim();
   if (!ref) { alert('Reference is required.'); return; }
+  const revisedBudget = cleanNumber(document.getElementById('f-revised').value);
+  const effRaw = document.getElementById('f-effmonth').value;
+  const effectiveMonthIdx = effRaw === '' ? null : parseInt(effRaw, 10);
+  if ((revisedBudget !== null) !== (effectiveMonthIdx !== null)) {
+    alert('Enter both a Revised Budget and an Effective From month, or leave both blank.');
+    return;
+  }
   const item = {
     ref,
     desc: document.getElementById('f-desc').value.trim(),
@@ -845,7 +847,7 @@ async function saveCurrentItem() {
     budget: cleanNumber(document.getElementById('f-budget').value) || 0,
     contractEnd: parseDateFlexible(document.getElementById('f-contractEnd').value),
     renewalValue: cleanNumber(document.getElementById('f-renewal').value),
-    months: Array.from({length: MONTH_COLS}, (_, i) => cleanNumber(document.getElementById('f-month-'+i).value))
+    revisedBudget, effectiveMonthIdx
   };
   const row = itemToRow(item);
   const { error } = await db.from('opex_items').upsert(row, { onConflict: 'ref' });
@@ -887,6 +889,10 @@ function handleCsvFile(file) {
         const rows = results.data.map(r => {
           const ref = (r['Reference'] || '').trim();
           if (!ref) return null;
+          const revisedBudget = cleanNumber(r['Revised Budget']);
+          const effLabel = (r['Effective Month'] || '').trim();
+          const effIdx = MONTH_LABELS.indexOf(effLabel);
+          const effectiveMonthIdx = (revisedBudget !== null && effIdx >= 0) ? effIdx : null;
           const item = {
             ref,
             desc: (r['Description'] || '').trim(),
@@ -895,7 +901,8 @@ function handleCsvFile(file) {
             budget: cleanNumber(r['FY27 Budget']) || 0,
             contractEnd: parseDateFlexible(r['Contract End Date']),
             renewalValue: cleanNumber(r['Post-Expiry Value']),
-            months: MONTH_LABELS.map(lbl => cleanNumber(r[lbl]))
+            revisedBudget: effectiveMonthIdx !== null ? revisedBudget : null,
+            effectiveMonthIdx
           };
           return itemToRow(item);
         }).filter(Boolean);
@@ -919,7 +926,7 @@ function handleCsvFile(file) {
 }
 
 function downloadTemplate() {
-  const header = ['Reference','Description','Vendor','Category','FY27 Budget', ...MONTH_LABELS, 'Contract End Date','Post-Expiry Value'];
+  const header = ['Reference','Description','Vendor','Category','FY27 Budget','Revised Budget','Effective Month','Contract End Date','Post-Expiry Value'];
   const csv = header.join(',') + '\n';
   const blob = new Blob([csv], { type: 'text/csv' });
   const url = URL.createObjectURL(blob);
@@ -946,7 +953,7 @@ function buildTrends() {
 }
 
 function buildOpexTrends() {
-  const awi = activeMonthIndices();
+  const awi = allMonthIndices();
   const labels = awi.map(mi => monthLabel(mi));
   const cumSav = awi.map(mi => savingsForMonth(mi));
   const monthlyNew = cumSav.map((v,i) => i===0 ? v : Math.max(0, v - cumSav[i-1]));
@@ -1017,19 +1024,12 @@ function buildOpexTrends() {
 
 function renderChangeLog(awi) {
   const tbody = document.getElementById('changesBody');
-  if (!awi || !awi.length) { tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:32px;color:#bbb">No month data loaded yet.</td></tr>`; return; }
 
-  const log = OPEX.map(item => {
-    let firstMi = null;
-    awi.forEach(mi => { if (firstMi === null && item.months[mi] !== null && item.months[mi] !== item.budget) firstMi = mi; });
-    if (firstMi === null) return null;
-    const latestMi = awi[awi.length-1];
-    const latestVal = monthValue(item, latestMi);
-    const saving = item.budget - latestVal;
-    return { ...item, firstMi, latestVal, saving };
-  }).filter(Boolean).sort((a,b) => b.saving - a.saving);
+  const log = OPEX.filter(item => item.revisedBudget !== null && item.effectiveMonthIdx !== null && item.revisedBudget !== item.budget)
+    .map(item => ({ ...item, firstMi: item.effectiveMonthIdx, latestVal: item.revisedBudget, saving: item.budget - item.revisedBudget }))
+    .sort((a,b) => b.saving - a.saving);
 
-  if (!log.length) { tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:32px;color:#bbb">No changes detected vs FY27 Budget baseline.</td></tr>`; return; }
+  if (!log.length) { tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:32px;color:#bbb">No changes detected vs FY27 Budget baseline. Use ✎ Edit Mode to set a Revised Budget + Effective From month on a line item.</td></tr>`; return; }
 
   tbody.innerHTML = log.map(r => {
     const sav = r.saving;
@@ -1163,8 +1163,7 @@ function updateHeaderBadgeForTab(tabOverride) {
       document.getElementById('badgeLabel').textContent = 'Contract Value Expiring (12mo)';
       document.getElementById('grandTotalDisplay').textContent = fmt(next12.reduce((s,r)=>s+currentCost(r),0));
     } else {
-      const awi = activeMonthIndices();
-      const ls = awi.length ? savingsForMonth(awi[awi.length-1]) : 0;
+      const ls = savingsForMonth(MONTH_COLS - 1);
       document.getElementById('badgeLabel').textContent = 'Savings Identified';
       document.getElementById('grandTotalDisplay').textContent = fmt(ls);
     }
