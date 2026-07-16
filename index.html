@@ -408,12 +408,32 @@ footer{text-align:center;padding:16px;font-size:.72rem;color:#bbb;border-top:1px
   </div>
 </div>
 
+<!-- Edit FY26 Actual Modal -->
+<div class="modal-overlay" id="fy26Modal" style="display:none">
+  <div class="modal-card" style="max-width:420px">
+    <div class="modal-hd">
+      <h3>Edit FY26 Actual Total</h3>
+      <button class="icon-btn" onclick="closeFy26Modal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field"><label>FY26 Actual Total Spend ($)</label><input id="f-fy26" type="number" step="1"></div>
+    </div>
+    <div class="modal-foot">
+      <div style="margin-left:auto;display:flex;gap:10px">
+        <button class="btn-ghost" onclick="closeFy26Modal()">Cancel</button>
+        <button class="btn-primary" onclick="saveFy26()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="config.js"></script>
 <script>
 /* ══════════════════════════════════════════════════════════
    CONSTANTS & HELPERS
 ══════════════════════════════════════════════════════════ */
 let SAVINGS_TARGET = 2000000;   // default until loaded from app_settings; editable via the ✎ next to the progress bar
+let FY26_ACTUAL = 9745378;      // default until loaded from app_settings; editable via the ✎ on the FY26 KPI card
 const MONTH_COLS = 18;              // Jul-26 .. Dec-27
 const MONTH_START_YEAR = 2026;
 const MONTH_START_INDEX = 6;        // July = index 6 (Jan=0)
@@ -519,8 +539,11 @@ async function loadOpexFromSupabase() {
 }
 
 async function loadSettings() {
-  const { data, error } = await db.from('app_settings').select('savings_target').eq('id', 1).maybeSingle();
-  if (!error && data && data.savings_target != null) SAVINGS_TARGET = Number(data.savings_target);
+  const { data, error } = await db.from('app_settings').select('savings_target, fy26_actual').eq('id', 1).maybeSingle();
+  if (!error && data) {
+    if (data.savings_target != null) SAVINGS_TARGET = Number(data.savings_target);
+    if (data.fy26_actual != null) FY26_ACTUAL = Number(data.fy26_actual);
+  }
 }
 
 let realtimeChannel = null;
@@ -541,7 +564,11 @@ function subscribeRealtime() {
       clearTimeout(settingsDebounce);
       settingsDebounce = setTimeout(async () => {
         await loadSettings();
-        if (currentTrendsSubTab === 'opex' && document.getElementById('view-trends').classList.contains('active')) buildOpexTrends();
+        if (document.getElementById('view-trends').classList.contains('active')) {
+          if (currentTrendsSubTab === 'opex') buildOpexTrends();
+        } else {
+          buildOpex();
+        }
       }, 800);
     })
     .subscribe();
@@ -626,7 +653,7 @@ async function boot() {
   document.getElementById('loadScreen').style.display = 'none';
   document.getElementById('dashboard').style.display = 'block';
 
-  selectedMonth = todayMonthIdx();
+  selectedMonth = null;
 
   buildOpex();
   updateHeaderBadgeForTab();
@@ -663,6 +690,22 @@ async function saveTarget() {
   if (currentTrendsSubTab === 'opex' && document.getElementById('view-trends').classList.contains('active')) buildOpexTrends();
 }
 
+function openFy26Modal() {
+  document.getElementById('f-fy26').value = FY26_ACTUAL;
+  document.getElementById('fy26Modal').style.display = 'flex';
+}
+function closeFy26Modal() { document.getElementById('fy26Modal').style.display = 'none'; }
+
+async function saveFy26() {
+  const v = cleanNumber(document.getElementById('f-fy26').value);
+  if (v === null || v < 0) { alert('Enter a valid FY26 total.'); return; }
+  const { error } = await db.from('app_settings').upsert({ id: 1, fy26_actual: v }, { onConflict: 'id' });
+  if (error) { alert('Save failed: ' + error.message); return; }
+  FY26_ACTUAL = v;
+  closeFy26Modal();
+  buildOpex();
+}
+
 /* ══════════════════════════════════════════════════════════
    OPEX TAB
 ══════════════════════════════════════════════════════════ */
@@ -678,7 +721,7 @@ function buildMonthSelector() {
   el.appendChild(base);
 
   const current = todayMonthIdx();
-  allMonthIndices().forEach(mi => {
+  allMonthIndices().filter(mi => mi > 0).forEach(mi => {   // Jul-26 (index 0) dropped — covered by the FY26 KPI instead
     const btn = document.createElement('button');
     btn.className = 'month-btn' + (mi === selectedMonth ? ' active' : '') + (mi === current ? ' latest' : '');
     btn.title = mi === current ? 'Current month' : '';
@@ -695,7 +738,6 @@ function buildOpex() {
   const monthLbl = isBaseline ? 'FY27 Budget' : monthLabel(selectedMonth);
   const grandTotal = totalForMonth(selectedMonth);
   const budgetTotal = OPEX.reduce((s,r) => s+r.budget, 0);
-  const totalSaving = isBaseline ? 0 : savingsForMonth(selectedMonth);
   const opexTypes = [...new Set(OPEX.map(r=>r.type))].sort();
   const opexByType = {};
   opexTypes.forEach(t => { opexByType[t] = OPEX.filter(r=>r.type===t); });
@@ -703,14 +745,19 @@ function buildOpex() {
   const kpiEl = document.getElementById('opexKpis');
   kpiEl.innerHTML = '';
   kpiEl.appendChild(makeKpi('FY27 Budget', fmt(budgetTotal), OPEX.length+' items', true, () => opexFilterByType('', kpiEl)));
-  if (!isBaseline) {
-    const sv = makeKpi(monthLbl+' Total', fmt(grandTotal), 'current negotiated', true);
-    sv.querySelector('.kpi-value').style.color = grandTotal < budgetTotal ? 'var(--ff-green)' : 'var(--ff-pink)';
-    kpiEl.appendChild(sv);
-    const savCard = makeKpi('Savings Identified', fmt(totalSaving), (totalSaving/SAVINGS_TARGET*100).toFixed(1)+'% of '+fmt(SAVINGS_TARGET)+' target', true);
-    savCard.querySelector('.kpi-value').style.color = 'var(--ff-green)';
-    kpiEl.appendChild(savCard);
-  }
+
+  const fy26Card = makeKpi('FY26', fmt(FY26_ACTUAL), 'actual total spend', true);
+  const fy26Edit = document.createElement('button');
+  fy26Edit.className = 'icon-btn'; fy26Edit.title = 'Edit FY26 actual total';
+  fy26Edit.textContent = '✎'; fy26Edit.style.marginTop = '6px';
+  fy26Edit.addEventListener('click', e => { e.stopPropagation(); openFy26Modal(); });
+  fy26Card.appendChild(fy26Edit);
+  kpiEl.appendChild(fy26Card);
+
+  const fy26Saving = FY26_ACTUAL - budgetTotal;
+  const savCard = makeKpi('Savings Identified', fmt(fy26Saving), 'FY26 actual vs FY27 Budget', true);
+  savCard.querySelector('.kpi-value').style.color = fy26Saving >= 0 ? 'var(--ff-green)' : 'var(--ff-pink)';
+  kpiEl.appendChild(savCard);
   opexTypes.forEach(t => {
     const items = opexByType[t];
     const sum = isBaseline ? items.reduce((s,r)=>s+r.budget,0) : items.reduce((s,r)=>s+monthValue(r,selectedMonth),0);
