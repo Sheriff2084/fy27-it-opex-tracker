@@ -966,11 +966,21 @@ function handleCsvFile(file) {
 
         if (!rows.length) throw new Error('No rows with a Reference column found.');
 
-        const { error } = await db.from('opex_items').upsert(rows, { onConflict: 'ref' });
+        // A single upsert() can't touch the same Reference twice in one batch
+        // (Postgres: "ON CONFLICT DO UPDATE command cannot affect row a second
+        // time") — dedupe here first, keeping the last occurrence, so a CSV
+        // with repeated/blank-filled References never crashes the import.
+        const seen = new Map();
+        rows.forEach(r => seen.set(r.ref, r));
+        const deduped = Array.from(seen.values());
+        const dupeCount = rows.length - deduped.length;
+
+        const { error } = await db.from('opex_items').upsert(deduped, { onConflict: 'ref' });
         if (error) throw error;
 
         statusEl.className = 'import-status ok';
-        statusEl.textContent = `✓ Imported ${rows.length} line item${rows.length===1?'':'s'}.`;
+        statusEl.textContent = `✓ Imported ${deduped.length} line item${deduped.length===1?'':'s'}.`
+          + (dupeCount > 0 ? ` ⚠ ${dupeCount} row${dupeCount===1?'':'s'} shared a duplicate Reference — only the last one for each was kept.` : '');
         await loadOpexFromSupabase();
         rerenderAll();
       } catch (err) {
